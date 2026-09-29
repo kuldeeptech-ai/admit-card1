@@ -2,23 +2,31 @@ import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { defineConfig } from 'vite';
+import { defineConfig, type Plugin } from 'vite';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+const htmlEntryResolver = (): Plugin => ({
+  name: 'resolve-html-entry',
+  transformIndexHtml(html) {
+    return html.replace(/src=["']\.\/src\/main\.tsx["']/g, 'src="/src/main.tsx"');
+  },
+});
+
 export default defineConfig(() => {
   return {
-    root: __dirname,
+    root: path.resolve(__dirname),
     base: '/',
-    plugins: [react(), tailwindcss()],
+    plugins: [react(), tailwindcss(), htmlEntryResolver()],
     resolve: {
       alias: {
         '@': path.resolve(__dirname, './src'),
       },
     },
     build: {
-      outDir: 'dist',
+      outDir: path.resolve(__dirname, 'dist'),
+      emptyOutDir: true,
       assetsDir: 'assets',
       sourcemap: false,
     },
