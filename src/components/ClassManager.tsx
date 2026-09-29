@@ -44,7 +44,19 @@ export const ClassManager: React.FC<ClassManagerProps> = ({
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingClass || !editingClass.name.trim()) return;
-    onSaveClass(editingClass);
+    const normalizedName = normalizeClassName(editingClass.name);
+    // Check if another class with the same normalized name already exists
+    const duplicate = classes.find(
+      (c) => c.id !== editingClass.id && normalizeClassName(c.name) === normalizedName
+    );
+    if (duplicate) {
+      alert(`Class "${normalizedName}" already exists! Please edit the existing class or use another name to avoid duplicate tags.`);
+      return;
+    }
+    onSaveClass({
+      ...editingClass,
+      name: normalizedName,
+    });
     setIsModalOpen(false);
     setEditingClass(null);
   };

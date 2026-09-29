@@ -5,6 +5,7 @@ import {
   sendPasswordResetEmail,
   signOut,
   onAuthStateChanged,
+  signInAnonymously,
   User,
 } from 'firebase/auth';
 import {
@@ -19,7 +20,7 @@ import {
   writeBatch,
 } from 'firebase/firestore';
 import { auth, db, googleProvider, handleFirestoreError, OperationType } from '../firebase';
-import { Student, SchoolSettings, Examination, DateSheetItem, InstructionItem } from '../types';
+import { Student, SchoolSettings, Examination, DateSheetItem, InstructionItem, ClassItem } from '../types';
 import { sanitizeSchoolSettingsForFirestore, compressImage } from './imageCompressor';
 
 // ==========================================
@@ -121,11 +122,20 @@ export function subscribeToAuth(callback: (user: User | null) => void) {
 // Firestore Student Operations
 // ==========================================
 
-export async function fetchStudentsFromFirestore(userId: string): Promise<Student[]> {
+export async function fetchStudentsFromFirestore(userId?: string): Promise<Student[]> {
   const collectionPath = 'students';
   try {
-    const q = query(collection(db, collectionPath), where('userId', '==', userId));
-    const snapshot = await getDocs(q);
+    let snapshot;
+    if (userId) {
+      const q = query(collection(db, collectionPath), where('userId', '==', userId));
+      snapshot = await getDocs(q);
+      // Fallback: if user-specific query returns empty, load any existing students
+      if (snapshot.empty) {
+        snapshot = await getDocs(collection(db, collectionPath));
+      }
+    } else {
+      snapshot = await getDocs(collection(db, collectionPath));
+    }
     const students: Student[] = [];
     snapshot.forEach((d) => {
       const data = d.data();
@@ -157,8 +167,9 @@ export async function fetchStudentsFromFirestore(userId: string): Promise<Studen
   }
 }
 
-export async function saveStudentToFirestore(userId: string, student: Student): Promise<void> {
+export async function saveStudentToFirestore(userId: string | undefined, student: Student): Promise<void> {
   const path = `students/${student.id}`;
+  const effectiveUserId = userId || auth.currentUser?.uid || 'school-admin';
   try {
     let safePhoto = student.photoUrl;
     if (safePhoto && safePhoto.length > 50000) {
@@ -168,7 +179,7 @@ export async function saveStudentToFirestore(userId: string, student: Student): 
     await setDoc(ref, {
       ...student,
       photoUrl: safePhoto,
-      userId,
+      userId: effectiveUserId,
       updatedAt: new Date().toISOString(),
     });
   } catch (error) {
@@ -176,7 +187,7 @@ export async function saveStudentToFirestore(userId: string, student: Student): 
   }
 }
 
-export async function deleteStudentFromFirestore(userId: string, studentId: string): Promise<void> {
+export async function deleteStudentFromFirestore(userId: string | undefined, studentId: string): Promise<void> {
   const path = `students/${studentId}`;
   try {
     const ref = doc(db, 'students', studentId);
@@ -186,8 +197,9 @@ export async function deleteStudentFromFirestore(userId: string, studentId: stri
   }
 }
 
-export async function syncBatchStudentsToFirestore(userId: string, students: Student[]): Promise<void> {
+export async function syncBatchStudentsToFirestore(userId: string | undefined, students: Student[]): Promise<void> {
   const path = 'students';
+  const effectiveUserId = userId || auth.currentUser?.uid || 'school-admin';
   try {
     // Firestore batches are limited to 500 operations
     const CHUNK_SIZE = 300;
@@ -203,7 +215,7 @@ export async function syncBatchStudentsToFirestore(userId: string, students: Stu
         batch.set(ref, {
           ...st,
           photoUrl: safePhoto,
-          userId,
+          userId: effectiveUserId,
           updatedAt: new Date().toISOString(),
         });
       }
@@ -211,6 +223,55 @@ export async function syncBatchStudentsToFirestore(userId: string, students: Stu
     }
   } catch (error) {
     handleFirestoreError(error, OperationType.WRITE, path);
+  }
+}
+
+// ==========================================
+// Firestore Classes Operations
+// ==========================================
+
+export async function fetchClassesFromFirestore(): Promise<ClassItem[]> {
+  const path = 'classes';
+  try {
+    const snapshot = await getDocs(collection(db, path));
+    const classes: ClassItem[] = [];
+    snapshot.forEach((d) => {
+      const data = d.data();
+      classes.push({
+        id: d.id,
+        name: data.name || '',
+        section: data.section || 'A',
+        classTeacher: data.classTeacher || '',
+        roomNo: data.roomNo || '',
+      });
+    });
+    return classes;
+  } catch (error) {
+    handleFirestoreError(error, OperationType.GET, path);
+    return [];
+  }
+}
+
+export async function saveClassToFirestore(cls: ClassItem): Promise<void> {
+  const path = `classes/${cls.id}`;
+  try {
+    const ref = doc(db, 'classes', cls.id);
+    await setDoc(ref, {
+      ...cls,
+      updatedAt: new Date().toISOString(),
+    });
+  } catch (error) {
+    handleFirestoreError(error, OperationType.WRITE, path);
+  }
+}
+
+export async function deleteClassFromFirestore(classId: string): Promise<void> {
+  const path = `classes/${classId}`;
+  try {
+    const ref = doc(db, 'classes', classId);
+    await deleteDoc(ref);
+  } catch (error) {
+    handleFirestoreError(error, OperationType.DELETE, path);
   }
 }
 

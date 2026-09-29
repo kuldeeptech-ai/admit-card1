@@ -41,6 +41,14 @@ export function normalizeClassName(cls?: string): string {
   return trimmed;
 }
 
+// Strips redundant "Class" prefix so "CLASS: Class 1" becomes "CLASS: 1"
+export function formatClassNumberOnly(cls?: string): string {
+  if (!cls) return '';
+  const trimmed = cls.trim();
+  const cleaned = trimmed.replace(/^class\s+/i, '');
+  return cleaned || trimmed;
+}
+
 // Duplicate detector: checks roll number in same class, admission number, or name + father name in same class
 export function findDuplicateStudent(
   student: Partial<Student>,
@@ -132,17 +140,30 @@ export const StudentManager: React.FC<StudentManagerProps> = ({
   const [parsedPasteStudents, setParsedPasteStudents] = useState<Student[]>([]);
   const [pasteNotice, setPasteNotice] = useState<string | null>(null);
 
-  // Calculate all available unique classes from classes list AND student records
+  // Calculate all available unique classes from classes list AND student records (strictly deduplicated by normalized name)
   const allAvailableClasses = useMemo(() => {
-    const classSet = new Set<string>();
-    classes.forEach((c) => classSet.add(c.name));
-    students.forEach((s) => {
-      if (s.className) classSet.add(normalizeClassName(s.className));
+    const classMap = new Map<string, string>();
+    classes.forEach((c) => {
+      if (c.name && c.name.trim()) {
+        const norm = normalizeClassName(c.name);
+        if (!classMap.has(norm)) {
+          classMap.set(norm, norm);
+        }
+      }
     });
-    return Array.from(classSet).sort((a, b) => {
+    students.forEach((s) => {
+      if (s.className && s.className.trim()) {
+        const norm = normalizeClassName(s.className);
+        if (!classMap.has(norm)) {
+          classMap.set(norm, norm);
+        }
+      }
+    });
+    return Array.from(classMap.values()).sort((a, b) => {
       const numA = parseInt(a.replace(/[^0-9]/g, '') || '0', 10);
       const numB = parseInt(b.replace(/[^0-9]/g, '') || '0', 10);
-      return numA - numB;
+      if (numA !== numB) return numA - numB;
+      return a.localeCompare(b);
     });
   }, [classes, students]);
 

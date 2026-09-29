@@ -17,7 +17,7 @@ import { StorageService } from './utils/storage';
 import { Navbar } from './components/Navbar';
 import { Sidebar, TabKey } from './components/Sidebar';
 import { Dashboard } from './components/Dashboard';
-import { StudentManager, findDuplicateStudent } from './components/StudentManager';
+import { StudentManager, findDuplicateStudent, normalizeClassName } from './components/StudentManager';
 import { ClassManager } from './components/ClassManager';
 import { ExamManager } from './components/ExamManager';
 import { Designer } from './components/Designer';
@@ -38,6 +38,9 @@ import {
   syncBatchStudentsToFirestore,
   fetchSchoolSettingsFromFirestore,
   saveSchoolSettingsToFirestore,
+  fetchClassesFromFirestore,
+  saveClassToFirestore,
+  deleteClassFromFirestore,
 } from './utils/firebaseSync';
 
 export default function App() {
@@ -92,43 +95,71 @@ export default function App() {
   useEffect(() => {
     testFirestoreConnection();
 
+    // 1. Initial Firestore Sync immediately on mount
+    const syncInitialData = async (uid?: string) => {
+      setCloudSyncStatus('syncing');
+      try {
+        // A. Sync Students with Firestore
+        const fsStudents = await fetchStudentsFromFirestore(uid);
+        if (fsStudents && fsStudents.length > 0) {
+          setStudents(fsStudents);
+          StorageService.setStudents(fsStudents);
+        } else {
+          const localStudents = StorageService.getStudents();
+          if (localStudents.length > 0) {
+            await syncBatchStudentsToFirestore(uid, localStudents);
+          }
+        }
+
+        // B. Sync Classes with Firestore
+        const fsClasses = await fetchClassesFromFirestore();
+        if (fsClasses && fsClasses.length > 0) {
+          const uniqueClasses: ClassItem[] = [];
+          const seenNames = new Set<string>();
+          fsClasses.forEach((c) => {
+            const norm = normalizeClassName(c.name);
+            if (!seenNames.has(norm)) {
+              seenNames.add(norm);
+              uniqueClasses.push({ ...c, name: norm });
+            }
+          });
+          setClasses(uniqueClasses);
+          StorageService.setClasses(uniqueClasses);
+        } else {
+          const localClasses = StorageService.getClasses();
+          for (const cls of localClasses) {
+            await saveClassToFirestore(cls);
+          }
+        }
+
+        // C. Sync School Settings with Firestore
+        const fsSchool = await fetchSchoolSettingsFromFirestore(uid || 'school-admin');
+        if (fsSchool) {
+          setSchool(fsSchool);
+          StorageService.setSchoolSettings(fsSchool);
+        } else {
+          const localSchool = StorageService.getSchoolSettings();
+          await saveSchoolSettingsToFirestore(uid || 'school-admin', localSchool);
+        }
+
+        setCloudSyncStatus('synced');
+      } catch (err) {
+        console.error('Initial Firestore Sync Error:', err);
+        setCloudSyncStatus('offline');
+      }
+    };
+
+    // Run startup sync
+    syncInitialData();
+
+    // Listen to Firebase Auth state
     const unsubscribe = subscribeToAuth(async (user) => {
       if (user) {
         setCurrentUser(user);
         setIsAuthenticated(true);
         localStorage.setItem('school_admin_authenticated', 'true');
         setIsLoginModalOpen(false);
-        setCloudSyncStatus('syncing');
-
-        try {
-          // 1. Fetch Students from Firestore
-          const fsStudents = await fetchStudentsFromFirestore(user.uid);
-          if (fsStudents && fsStudents.length > 0) {
-            setStudents(fsStudents);
-            StorageService.setStudents(fsStudents);
-          } else {
-            // First time login for this user: sync default/existing students to Firestore
-            const localStudents = StorageService.getStudents();
-            if (localStudents.length > 0) {
-              await syncBatchStudentsToFirestore(user.uid, localStudents);
-            }
-          }
-
-          // 2. Fetch School Settings from Firestore
-          const fsSchool = await fetchSchoolSettingsFromFirestore(user.uid);
-          if (fsSchool) {
-            setSchool(fsSchool);
-            StorageService.setSchoolSettings(fsSchool);
-          } else {
-            const localSchool = StorageService.getSchoolSettings();
-            await saveSchoolSettingsToFirestore(user.uid, localSchool);
-          }
-
-          setCloudSyncStatus('synced');
-        } catch (err) {
-          console.error('Initial Firestore Sync Error:', err);
-          setCloudSyncStatus('offline');
-        }
+        syncInitialData(user.uid);
       } else {
         setCurrentUser(null);
         const isAuth = localStorage.getItem('school_admin_authenticated') === 'true';
@@ -146,11 +177,17 @@ export default function App() {
   const currentExam =
     examinations.find((e) => e.id === activeExamId) || examinations[0];
 
-  // Handlers for Students
+  // Handlers for Students (Always synced to Firestore database)
   const handleSaveStudent = (student: Student) => {
-    const isNew = !students.some((s) => s.id === student.id);
+    const normalizedClass = normalizeClassName(student.className) || student.className;
+    const cleanStudent: Student = {
+      ...student,
+      className: normalizedClass,
+    };
+
+    const isNew = !students.some((s) => s.id === cleanStudent.id);
     if (isNew) {
-      const duplicate = findDuplicateStudent(student, students);
+      const duplicate = findDuplicateStudent(cleanStudent, students);
       if (duplicate) {
         alert(
           `Cannot add duplicate student: A student named "${duplicate.name}" with Roll No "${duplicate.rollNumber}" already exists in ${duplicate.className}.`
@@ -159,24 +196,31 @@ export default function App() {
       }
     }
 
-    const exists = students.some((s) => s.id === student.id);
+    const exists = students.some((s) => s.id === cleanStudent.id);
     const updated = exists
-      ? students.map((s) => (s.id === student.id ? student : s))
-      : [student, ...students];
+      ? students.map((s) => (s.id === cleanStudent.id ? cleanStudent : s))
+      : [cleanStudent, ...students];
     setStudents(updated);
     StorageService.setStudents(updated);
 
-    if (currentUser?.uid) {
-      setCloudSyncStatus('syncing');
-      saveStudentToFirestore(currentUser.uid, student)
-        .then(() => setCloudSyncStatus('synced'))
-        .catch(() => setCloudSyncStatus('offline'));
-    }
+    // Save student to Firestore database
+    setCloudSyncStatus('syncing');
+    saveStudentToFirestore(currentUser?.uid, cleanStudent)
+      .then(() => setCloudSyncStatus('synced'))
+      .catch((err) => {
+        console.error('Save to Firestore failed:', err);
+        setCloudSyncStatus('offline');
+      });
   };
 
   const handleBulkAddStudents = (newStudents: Student[]) => {
+    const cleanStudents = newStudents.map((ns) => ({
+      ...ns,
+      className: normalizeClassName(ns.className) || ns.className,
+    }));
+
     const uniqueStudents: Student[] = [];
-    newStudents.forEach((ns) => {
+    cleanStudents.forEach((ns) => {
       const isDup = findDuplicateStudent(ns, [...students, ...uniqueStudents]);
       if (!isDup) {
         uniqueStudents.push(ns);
@@ -192,12 +236,14 @@ export default function App() {
     setStudents(updated);
     StorageService.setStudents(updated);
 
-    if (currentUser?.uid) {
-      setCloudSyncStatus('syncing');
-      syncBatchStudentsToFirestore(currentUser.uid, uniqueStudents)
-        .then(() => setCloudSyncStatus('synced'))
-        .catch(() => setCloudSyncStatus('offline'));
-    }
+    // Save batch to Firestore database
+    setCloudSyncStatus('syncing');
+    syncBatchStudentsToFirestore(currentUser?.uid, uniqueStudents)
+      .then(() => setCloudSyncStatus('synced'))
+      .catch((err) => {
+        console.error('Batch save to Firestore failed:', err);
+        setCloudSyncStatus('offline');
+      });
   };
 
   const handleDeleteStudent = (id: string) => {
@@ -205,9 +251,7 @@ export default function App() {
     setStudents(updated);
     StorageService.setStudents(updated);
 
-    if (currentUser?.uid) {
-      deleteStudentFromFirestore(currentUser.uid, id).catch(() => setCloudSyncStatus('offline'));
-    }
+    deleteStudentFromFirestore(currentUser?.uid, id).catch(() => setCloudSyncStatus('offline'));
   };
 
   const handleDeleteMultipleStudents = (ids: string[]) => {
@@ -215,21 +259,20 @@ export default function App() {
     setStudents(updated);
     StorageService.setStudents(updated);
 
-    if (currentUser?.uid) {
-      ids.forEach((id) => deleteStudentFromFirestore(currentUser.uid, id).catch(() => {}));
-    }
+    ids.forEach((id) => deleteStudentFromFirestore(currentUser?.uid, id).catch(() => {}));
   };
 
   const handleGenerateAdmitCards = (ids: string[]) => {
     const prefix = school.admitCardNumberPrefix || 'HDP/2026/';
     let counter = students.filter((s) => s.isGenerated).length;
 
+    const modifiedStudents: Student[] = [];
     const updated = students.map((s) => {
       if (ids.includes(s.id)) {
         counter++;
         const classNum = s.className.replace(/[^0-9]/g, '') || '1';
         const formattedRoll = String(s.rollNumber || counter).padStart(2, '0');
-        return {
+        const stUpdated: Student = {
           ...s,
           isGenerated: true,
           admitCardNumber:
@@ -237,12 +280,18 @@ export default function App() {
               ? s.admitCardNumber
               : `${prefix}${classNum.padStart(2, '0')}${formattedRoll}`,
         };
+        modifiedStudents.push(stUpdated);
+        return stUpdated;
       }
       return s;
     });
 
     setStudents(updated);
     StorageService.setStudents(updated);
+
+    if (modifiedStudents.length > 0) {
+      syncBatchStudentsToFirestore(currentUser?.uid, modifiedStudents).catch(() => {});
+    }
   };
 
   const handleBulkGenerateAll = () => {
@@ -263,18 +312,34 @@ export default function App() {
 
   // Handlers for Classes
   const handleSaveClass = (cls: ClassItem) => {
-    const exists = classes.some((c) => c.id === cls.id);
+    const normalizedName = normalizeClassName(cls.name);
+    const cleanCls = { ...cls, name: normalizedName };
+    const exists = classes.some((c) => c.id === cleanCls.id);
     const updated = exists
-      ? classes.map((c) => (c.id === cls.id ? cls : c))
-      : [...classes, cls];
-    setClasses(updated);
-    StorageService.setClasses(updated);
+      ? classes.map((c) => (c.id === cleanCls.id ? cleanCls : c))
+      : [...classes, cleanCls];
+
+    // Deduplicate by normalized name
+    const uniqueClasses: ClassItem[] = [];
+    const seenNames = new Set<string>();
+    updated.forEach((c) => {
+      const norm = normalizeClassName(c.name);
+      if (!seenNames.has(norm)) {
+        seenNames.add(norm);
+        uniqueClasses.push({ ...c, name: norm });
+      }
+    });
+
+    setClasses(uniqueClasses);
+    StorageService.setClasses(uniqueClasses);
+    saveClassToFirestore(cleanCls).catch((err) => console.error('Save class to Firestore failed:', err));
   };
 
   const handleDeleteClass = (id: string) => {
     const updated = classes.filter((c) => c.id !== id);
     setClasses(updated);
     StorageService.setClasses(updated);
+    deleteClassFromFirestore(id).catch((err) => console.error('Delete class from Firestore failed:', err));
   };
 
   // Handlers for Examinations

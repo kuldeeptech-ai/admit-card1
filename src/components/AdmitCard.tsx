@@ -150,6 +150,10 @@ export const AdmitCard: React.FC<AdmitCardProps> = ({
   const secondaryCol = design.secondaryColor || '#d4af37';
   const borderCol = design.borderColor || primaryCol;
 
+  // Clean class representation: strips redundant "Class " prefix so "CLASS: Class 1" becomes "CLASS: 1"
+  const rawClass = (student.className || '').trim();
+  const displayClassNumber = rawClass.replace(/^class\s+/i, '') || rawClass;
+
   return (
     <div
       className={`admit-card ${isLandscape ? 'admit-card-horizontal' : 'admit-card-portrait'} relative flex flex-col justify-between select-none ${fontClass} ${
@@ -335,7 +339,7 @@ export const AdmitCard: React.FC<AdmitCardProps> = ({
                 style={{ fontSize: `${Math.round(8.8 * fontSizeFactor)}px` }}
               >
                 <span>
-                  CLASS: <strong>{student.className}{student.section ? ` - ${student.section}` : ''}</strong>
+                  CLASS: <strong>{displayClassNumber}{student.section ? ` - ${student.section}` : ''}</strong>
                 </span>
               </div>
             </div>
@@ -404,7 +408,7 @@ export const AdmitCard: React.FC<AdmitCardProps> = ({
                       Class / Section:
                     </td>
                     <td className="px-2 py-0.5 font-extrabold text-slate-900">
-                      {student.className} {student.section ? `('${student.section}')` : ''}
+                      {displayClassNumber} {student.section ? `('${student.section}')` : ''}
                     </td>
                   </tr>
 
@@ -853,7 +857,7 @@ export const AdmitCard: React.FC<AdmitCardProps> = ({
                         <span className="text-red-700 bg-red-50 px-1 rounded font-black mr-0.5 text-[10px]">
                           {student.rollNumber}
                         </span>{' '}
-                        {student.className}-{student.section}
+                        {displayClassNumber}{student.section ? `-${student.section}` : ''}
                       </td>
                     </tr>
                     {visibility.fatherName && (
