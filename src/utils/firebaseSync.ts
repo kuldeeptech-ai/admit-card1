@@ -20,6 +20,7 @@ import {
 } from 'firebase/firestore';
 import { auth, db, googleProvider, handleFirestoreError, OperationType } from '../firebase';
 import { Student, SchoolSettings, Examination, DateSheetItem, InstructionItem } from '../types';
+import { sanitizeSchoolSettingsForFirestore, compressImage } from './imageCompressor';
 
 // ==========================================
 // Master Admin Security Configurations
@@ -159,9 +160,14 @@ export async function fetchStudentsFromFirestore(userId: string): Promise<Studen
 export async function saveStudentToFirestore(userId: string, student: Student): Promise<void> {
   const path = `students/${student.id}`;
   try {
+    let safePhoto = student.photoUrl;
+    if (safePhoto && safePhoto.length > 50000) {
+      safePhoto = await compressImage(safePhoto, 200, 260, 0.8);
+    }
     const ref = doc(db, 'students', student.id);
     await setDoc(ref, {
       ...student,
+      photoUrl: safePhoto,
       userId,
       updatedAt: new Date().toISOString(),
     });
@@ -184,18 +190,23 @@ export async function syncBatchStudentsToFirestore(userId: string, students: Stu
   const path = 'students';
   try {
     // Firestore batches are limited to 500 operations
-    const CHUNK_SIZE = 350;
+    const CHUNK_SIZE = 300;
     for (let i = 0; i < students.length; i += CHUNK_SIZE) {
       const chunk = students.slice(i, i + CHUNK_SIZE);
       const batch = writeBatch(db);
-      chunk.forEach((st) => {
+      for (const st of chunk) {
+        let safePhoto = st.photoUrl;
+        if (safePhoto && safePhoto.length > 60000) {
+          safePhoto = await compressImage(safePhoto, 180, 220, 0.78);
+        }
         const ref = doc(db, 'students', st.id);
         batch.set(ref, {
           ...st,
+          photoUrl: safePhoto,
           userId,
           updatedAt: new Date().toISOString(),
         });
-      });
+      }
       await batch.commit();
     }
   } catch (error) {
@@ -225,9 +236,11 @@ export async function fetchSchoolSettingsFromFirestore(userId: string): Promise<
 export async function saveSchoolSettingsToFirestore(userId: string, school: SchoolSettings): Promise<void> {
   const path = `schools/${userId}`;
   try {
+    // Sanitize and compress all images (logo, signatures, stamp) so total document size is < 250 KB
+    const safeSchool = await sanitizeSchoolSettingsForFirestore(school);
     const ref = doc(db, 'schools', userId);
     await setDoc(ref, {
-      ...school,
+      ...safeSchool,
       userId,
       updatedAt: new Date().toISOString(),
     });

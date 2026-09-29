@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { SchoolSettings, DesignSettings } from '../types';
+import { compressImage } from '../utils/imageCompressor';
 import {
   School,
   Save,
@@ -55,17 +56,17 @@ const AssetControlBox: React.FC<AssetControlProps> = ({
   const [copied, setCopied] = useState(false);
   const [justConverted, setJustConverted] = useState(false);
 
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      const reader = new FileReader();
-      reader.onload = () => {
-        const base64 = reader.result as string;
-        onChangeUrl(base64);
+      try {
+        const compressed = await compressImage(file, 300, 300, 0.82);
+        onChangeUrl(compressed);
         setJustConverted(true);
         setTimeout(() => setJustConverted(false), 3500);
-      };
-      reader.readAsDataURL(file);
+      } catch (err) {
+        console.error('Image compression error:', err);
+      }
     }
   };
 

@@ -30,6 +30,7 @@ import {
 } from 'lucide-react';
 import { DEFAULT_STUDENT_AVATARS } from '../utils/defaultData';
 import { parseExcelPastedText } from '../utils/excelImport';
+import { compressImage } from '../utils/imageCompressor';
 
 // Helper to normalize class names (e.g., '5', '5th', 'Class 5', 'class 5th' -> 'Class 5')
 export function normalizeClassName(cls?: string): string {
@@ -320,17 +321,18 @@ export const StudentManager: React.FC<StudentManagerProps> = ({
     setModalError(null);
   };
 
-  const handlePhotoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file && editingStudent) {
-      const reader = new FileReader();
-      reader.onload = () => {
+      try {
+        const compressed = await compressImage(file, 200, 260, 0.82);
         setEditingStudent({
           ...editingStudent,
-          photoUrl: reader.result as string,
+          photoUrl: compressed,
         });
-      };
-      reader.readAsDataURL(file);
+      } catch (err) {
+        console.error('Photo compression error:', err);
+      }
     }
   };
 
