@@ -1,0 +1,6 @@
+{
+  "name": "School Admit Card Generator & Exam Management System",
+  "description": "Comprehensive school admit card generation, class-wise student management, bulk Excel/CSV import, and professional A4 sheet printing.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
