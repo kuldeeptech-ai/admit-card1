@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { ClassItem, Student } from '../types';
 import { GraduationCap, Plus, Edit, Trash2, Users, Printer, X, FileCheck, ArrowRight } from 'lucide-react';
+import { normalizeClassName } from './StudentManager';
 
 interface ClassManagerProps {
   classes: ClassItem[];
@@ -67,7 +68,9 @@ export const ClassManager: React.FC<ClassManagerProps> = ({
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {classes.map((cls) => {
-          const classStudents = students.filter((s) => s.className === cls.name);
+          const classStudents = students.filter(
+            (s) => normalizeClassName(s.className) === normalizeClassName(cls.name)
+          );
           const studentCount = classStudents.length;
           const generatedCount = classStudents.filter((s) => s.isGenerated).length;
 

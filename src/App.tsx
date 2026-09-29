@@ -17,7 +17,7 @@ import { StorageService } from './utils/storage';
 import { Navbar } from './components/Navbar';
 import { Sidebar, TabKey } from './components/Sidebar';
 import { Dashboard } from './components/Dashboard';
-import { StudentManager } from './components/StudentManager';
+import { StudentManager, findDuplicateStudent } from './components/StudentManager';
 import { ClassManager } from './components/ClassManager';
 import { ExamManager } from './components/ExamManager';
 import { Designer } from './components/Designer';
@@ -131,10 +131,8 @@ export default function App() {
         }
       } else {
         setCurrentUser(null);
-        const isDemo =
-          localStorage.getItem('school_admin_authenticated') === 'true' &&
-          localStorage.getItem('school_admin_demo') === 'true';
-        if (!isDemo) {
+        const isAuth = localStorage.getItem('school_admin_authenticated') === 'true';
+        if (!isAuth) {
           setIsAuthenticated(false);
           setIsLoginModalOpen(true);
         }
@@ -150,6 +148,17 @@ export default function App() {
 
   // Handlers for Students
   const handleSaveStudent = (student: Student) => {
+    const isNew = !students.some((s) => s.id === student.id);
+    if (isNew) {
+      const duplicate = findDuplicateStudent(student, students);
+      if (duplicate) {
+        alert(
+          `Cannot add duplicate student: A student named "${duplicate.name}" with Roll No "${duplicate.rollNumber}" already exists in ${duplicate.className}.`
+        );
+        return;
+      }
+    }
+
     const exists = students.some((s) => s.id === student.id);
     const updated = exists
       ? students.map((s) => (s.id === student.id ? student : s))
@@ -166,13 +175,26 @@ export default function App() {
   };
 
   const handleBulkAddStudents = (newStudents: Student[]) => {
-    const updated = [...newStudents, ...students];
+    const uniqueStudents: Student[] = [];
+    newStudents.forEach((ns) => {
+      const isDup = findDuplicateStudent(ns, [...students, ...uniqueStudents]);
+      if (!isDup) {
+        uniqueStudents.push(ns);
+      }
+    });
+
+    if (uniqueStudents.length === 0) {
+      alert('All provided students already exist in the database. No duplicate students were added.');
+      return;
+    }
+
+    const updated = [...uniqueStudents, ...students];
     setStudents(updated);
     StorageService.setStudents(updated);
 
     if (currentUser?.uid) {
       setCloudSyncStatus('syncing');
-      syncBatchStudentsToFirestore(currentUser.uid, newStudents)
+      syncBatchStudentsToFirestore(currentUser.uid, uniqueStudents)
         .then(() => setCloudSyncStatus('synced'))
         .catch(() => setCloudSyncStatus('offline'));
     }
@@ -352,17 +374,19 @@ export default function App() {
       console.error(e);
     }
     localStorage.removeItem('school_admin_authenticated');
-    localStorage.removeItem('school_admin_demo');
+    localStorage.removeItem('school_admin_email');
+    localStorage.removeItem('school_admin_name');
     setIsAuthenticated(false);
     setCurrentUser(null);
     setIsLoginModalOpen(true);
   };
 
-  const handleLoginSuccess = (_email: string, _displayName?: string) => {
+  const handleLoginSuccess = (email: string, displayName?: string) => {
     setIsAuthenticated(true);
     localStorage.setItem('school_admin_authenticated', 'true');
-    if (!currentUser) {
-      localStorage.setItem('school_admin_demo', 'true');
+    localStorage.setItem('school_admin_email', email);
+    if (displayName) {
+      localStorage.setItem('school_admin_name', displayName);
     }
     setIsLoginModalOpen(false);
   };
@@ -450,7 +474,7 @@ export default function App() {
         onLogout={handleLogout}
         onToggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)}
         cloudSyncStatus={cloudSyncStatus}
-        currentUserEmail={currentUser?.email || (isAuthenticated ? 'admin@pandeypublicschool.edu' : null)}
+        currentUserEmail={currentUser?.email || localStorage.getItem('school_admin_email') || (isAuthenticated ? 'kuldeeprai75220@gmail.com' : null)}
       />
 
       {/* Main Layout Container */}
@@ -656,7 +680,7 @@ export default function App() {
         }}
         schoolName={school.name}
         logoUrl={school.logoUrl}
-        allowBypassDemo={true}
+        allowBypassDemo={false}
       />
     </div>
   );

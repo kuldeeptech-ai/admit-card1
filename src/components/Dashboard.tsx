@@ -20,6 +20,7 @@ import {
   Upload,
   ArrowRight,
 } from 'lucide-react';
+import { normalizeClassName } from './StudentManager';
 
 interface DashboardProps {
   students: Student[];
@@ -192,7 +193,9 @@ export const Dashboard: React.FC<DashboardProps> = ({
 
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3.5">
           {classes.map((cls) => {
-            const classStudents = students.filter((s) => s.className === cls.name);
+            const classStudents = students.filter(
+              (s) => normalizeClassName(s.className) === normalizeClassName(cls.name)
+            );
             const count = classStudents.length;
             const generated = classStudents.filter((s) => s.isGenerated).length;
 

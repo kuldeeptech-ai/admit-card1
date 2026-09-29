@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   Student,
   ClassItem,
@@ -26,9 +26,55 @@ import {
   GraduationCap,
   Download,
   Link as LinkIcon,
+  AlertTriangle,
 } from 'lucide-react';
 import { DEFAULT_STUDENT_AVATARS } from '../utils/defaultData';
 import { parseExcelPastedText } from '../utils/excelImport';
+
+// Helper to normalize class names (e.g., '5', '5th', 'Class 5', 'class 5th' -> 'Class 5')
+export function normalizeClassName(cls?: string): string {
+  if (!cls) return '';
+  const trimmed = cls.trim();
+  const numMatch = trimmed.match(/(\d+)/);
+  if (numMatch) return `Class ${numMatch[1]}`;
+  return trimmed;
+}
+
+// Duplicate detector: checks roll number in same class, admission number, or name + father name in same class
+export function findDuplicateStudent(
+  student: Partial<Student>,
+  existingStudents: Student[],
+  excludeId?: string
+): Student | undefined {
+  const normClass = normalizeClassName(student.className);
+  const roll = (student.rollNumber || '').trim().toLowerCase();
+  const adm = (student.admissionNumber || '').trim().toLowerCase();
+  const name = (student.name || '').trim().toLowerCase();
+  const father = (student.fatherName || '').trim().toLowerCase();
+
+  return existingStudents.find((s) => {
+    if (excludeId && s.id === excludeId) return false;
+    const sNormClass = normalizeClassName(s.className);
+    const sRoll = (s.rollNumber || '').trim().toLowerCase();
+    const sAdm = (s.admissionNumber || '').trim().toLowerCase();
+    const sName = (s.name || '').trim().toLowerCase();
+    const sFather = (s.fatherName || '').trim().toLowerCase();
+
+    // Check 1: Same roll number in same class
+    if (roll && sRoll && roll === sRoll && normClass === sNormClass) {
+      return true;
+    }
+    // Check 2: Same admission number (if non-empty)
+    if (adm && sAdm && adm === sAdm) {
+      return true;
+    }
+    // Check 3: Same student name + father name in same class
+    if (name && sName && name === sName && father && sFather && father === sFather && normClass === sNormClass) {
+      return true;
+    }
+    return false;
+  });
+}
 
 interface StudentManagerProps {
   students: Student[];
@@ -63,9 +109,17 @@ export const StudentManager: React.FC<StudentManagerProps> = ({
   const [statusFilter, setStatusFilter] = useState<'all' | 'generated' | 'pending'>('all');
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
 
+  // Keep selectedClass synchronized with parent class filter props
+  useEffect(() => {
+    if (initialClassFilter) {
+      setSelectedClass(initialClassFilter);
+    }
+  }, [initialClassFilter]);
+
   // Modal State
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingStudent, setEditingStudent] = useState<Student | null>(null);
+  const [modalError, setModalError] = useState<string | null>(null);
   const [viewingStudent, setViewingStudent] = useState<Student | null>(null);
   const [photoCopied, setPhotoCopied] = useState(false);
 
@@ -77,24 +131,47 @@ export const StudentManager: React.FC<StudentManagerProps> = ({
   const [parsedPasteStudents, setParsedPasteStudents] = useState<Student[]>([]);
   const [pasteNotice, setPasteNotice] = useState<string | null>(null);
 
-  // Filter students
-  const filteredStudents = students.filter((s) => {
-    const matchSearch =
-      s.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      s.rollNumber.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      s.admissionNumber.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      s.className.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      (s.admitCardNumber && s.admitCardNumber.toLowerCase().includes(searchTerm.toLowerCase()));
+  // Calculate all available unique classes from classes list AND student records
+  const allAvailableClasses = useMemo(() => {
+    const classSet = new Set<string>();
+    classes.forEach((c) => classSet.add(c.name));
+    students.forEach((s) => {
+      if (s.className) classSet.add(normalizeClassName(s.className));
+    });
+    return Array.from(classSet).sort((a, b) => {
+      const numA = parseInt(a.replace(/[^0-9]/g, '') || '0', 10);
+      const numB = parseInt(b.replace(/[^0-9]/g, '') || '0', 10);
+      return numA - numB;
+    });
+  }, [classes, students]);
 
-    const matchClass = selectedClass === 'all' || s.className === selectedClass;
-    const matchSection = selectedSection === 'all' || s.section === selectedSection;
-    const matchStatus =
-      statusFilter === 'all' ||
-      (statusFilter === 'generated' && s.isGenerated) ||
-      (statusFilter === 'pending' && !s.isGenerated);
+  // Filter students based on class, section, search term, and status
+  const filteredStudents = useMemo(() => {
+    return students.filter((s) => {
+      const matchSearch =
+        s.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        s.rollNumber.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        s.admissionNumber.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        s.className.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        (s.admitCardNumber && s.admitCardNumber.toLowerCase().includes(searchTerm.toLowerCase()));
 
-    return matchSearch && matchClass && matchSection && matchStatus;
-  });
+      const matchClass =
+        selectedClass === 'all' ||
+        normalizeClassName(s.className) === normalizeClassName(selectedClass);
+
+      const sSec = (s.section || 'A').trim().toUpperCase();
+      const matchSection =
+        selectedSection === 'all' ||
+        sSec === selectedSection.trim().toUpperCase();
+
+      const matchStatus =
+        statusFilter === 'all' ||
+        (statusFilter === 'generated' && s.isGenerated) ||
+        (statusFilter === 'pending' && !s.isGenerated);
+
+      return matchSearch && matchClass && matchSection && matchStatus;
+    });
+  }, [students, searchTerm, selectedClass, selectedSection, statusFilter]);
 
   // Parse tabular copy-paste data
   const parsePastedData = (
@@ -103,7 +180,12 @@ export const StudentManager: React.FC<StudentManagerProps> = ({
     secName: string
   ): Student[] => {
     if (!text.trim()) return [];
-    const parsed = parseExcelPastedText(text, clsName === 'auto' ? 'Class 1' : clsName, secName, school.admitCardNumberPrefix || 'HDP/2026/');
+    const parsed = parseExcelPastedText(
+      text,
+      clsName === 'auto' ? 'Class 1' : clsName,
+      secName,
+      school.admitCardNumberPrefix || 'HDP/2026/'
+    );
     if (clsName !== 'auto') {
       return parsed.students.map((s) => ({ ...s, className: clsName }));
     }
@@ -122,19 +204,43 @@ export const StudentManager: React.FC<StudentManagerProps> = ({
       return;
     }
 
-    if (onBulkAddStudents) {
-      onBulkAddStudents(parsedPasteStudents);
-    } else {
-      parsedPasteStudents.forEach((st) => onSaveStudent(st));
+    const uniqueToImport: Student[] = [];
+    let duplicateCount = 0;
+
+    parsedPasteStudents.forEach((newSt) => {
+      const isDup = findDuplicateStudent(newSt, [...students, ...uniqueToImport]);
+      if (isDup) {
+        duplicateCount++;
+      } else {
+        uniqueToImport.push(newSt);
+      }
+    });
+
+    if (uniqueToImport.length === 0) {
+      alert(
+        `All ${parsedPasteStudents.length} students in this paste are already present in the database (duplicates). No new students were added.`
+      );
+      return;
     }
 
-    setPasteNotice(`Successfully imported ${parsedPasteStudents.length} students into their respective classes!`);
+    if (onBulkAddStudents) {
+      onBulkAddStudents(uniqueToImport);
+    } else {
+      uniqueToImport.forEach((st) => onSaveStudent(st));
+    }
+
+    const notice =
+      duplicateCount > 0
+        ? `Successfully imported ${uniqueToImport.length} students into their respective classes! (Skipped ${duplicateCount} duplicate entries).`
+        : `Successfully imported ${uniqueToImport.length} students into their respective classes!`;
+
+    setPasteNotice(notice);
     setTimeout(() => {
       setPasteNotice(null);
       setIsPasteModalOpen(false);
       setPastedRawText('');
       setParsedPasteStudents([]);
-    }, 1800);
+    }, 2000);
   };
 
   const handleSelectAll = () => {
@@ -153,7 +259,9 @@ export const StudentManager: React.FC<StudentManagerProps> = ({
 
   const handleOpenAddForClass = (targetClass: string) => {
     const finalClass = targetClass !== 'all' ? targetClass : (classes[0]?.name || 'Class 1');
-    const classStudents = students.filter((s) => s.className === finalClass);
+    const classStudents = students.filter(
+      (s) => normalizeClassName(s.className) === normalizeClassName(finalClass)
+    );
     const nextRoll = String(classStudents.length + 1).padStart(2, '0');
     const classNum = finalClass.replace(/[^0-9]/g, '') || '1';
     const nextCardNum = `${school.admitCardNumberPrefix || 'HDP/2026/'}${classNum.padStart(2, '0')}${nextRoll}`;
@@ -164,7 +272,7 @@ export const StudentManager: React.FC<StudentManagerProps> = ({
       fatherName: '',
       motherName: '',
       className: finalClass,
-      section: 'A',
+      section: selectedSection !== 'all' ? selectedSection : 'A',
       rollNumber: String(classStudents.length + 1),
       admissionNumber: `HDP-${new Date().getFullYear()}-${classNum}${nextRoll}`,
       dob: '2014-01-01',
@@ -179,11 +287,13 @@ export const StudentManager: React.FC<StudentManagerProps> = ({
       isGenerated: false,
     };
     setEditingStudent(newStudent);
+    setModalError(null);
     setIsModalOpen(true);
   };
 
   const handleOpenEdit = (student: Student) => {
     setEditingStudent({ ...student });
+    setModalError(null);
     setIsModalOpen(true);
   };
 
@@ -191,12 +301,23 @@ export const StudentManager: React.FC<StudentManagerProps> = ({
     e.preventDefault();
     if (!editingStudent) return;
     if (!editingStudent.name.trim()) {
-      alert('Please enter student name.');
+      setModalError('Please enter student name.');
       return;
     }
+
+    // DUPLICATE STUDENT VERIFICATION
+    const duplicate = findDuplicateStudent(editingStudent, students, editingStudent.id);
+    if (duplicate) {
+      setModalError(
+        `Duplicate Student Error: A student named "${duplicate.name}" with Roll No "${duplicate.rollNumber}" already exists in ${duplicate.className}. Duplicate entries are not allowed.`
+      );
+      return;
+    }
+
     onSaveStudent(editingStudent);
     setIsModalOpen(false);
     setEditingStudent(null);
+    setModalError(null);
   };
 
   const handlePhotoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -231,7 +352,7 @@ export const StudentManager: React.FC<StudentManagerProps> = ({
 
   return (
     <div className="space-y-4">
-      {/* CLASS FILTER TABS (C-1 to C-8 & All) - Prominently Displayed! */}
+      {/* CLASS & SECTION FILTER TABS */}
       <div className="bg-white p-3 rounded-2xl border border-slate-200 shadow-2xs space-y-2.5">
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
           <div className="flex items-center gap-2">
@@ -243,16 +364,16 @@ export const StudentManager: React.FC<StudentManagerProps> = ({
                 <span>Class-Wise Student Management</span>
                 {selectedClass !== 'all' ? (
                   <span className="px-2 py-0.5 rounded-full text-[11px] font-black bg-blue-100 text-blue-800">
-                    Active Class: {selectedClass}
+                    Active Class: {selectedClass} {selectedSection !== 'all' ? `(Sec ${selectedSection})` : ''}
                   </span>
                 ) : (
                   <span className="px-2 py-0.5 rounded-full text-[11px] font-black bg-slate-100 text-slate-700">
-                    All Classes
+                    All Classes ({students.length})
                   </span>
                 )}
               </h2>
               <p className="text-[11px] text-slate-500">
-                Manage each class separately. Click any class to add students, view list, generate cards, or print A4 sheets.
+                View students class-by-class and section-by-section. Add students, generate cards, or print A4 sheets.
               </p>
             </div>
           </div>
@@ -297,10 +418,13 @@ export const StudentManager: React.FC<StudentManagerProps> = ({
           </div>
         </div>
 
-        {/* Class Pills */}
+        {/* 1. Class Navigation Pills */}
         <div className="flex flex-wrap items-center gap-1.5 pt-1 border-t border-slate-100">
           <button
-            onClick={() => setSelectedClass('all')}
+            onClick={() => {
+              setSelectedClass('all');
+              setSelectedSection('all');
+            }}
             className={`px-3 py-1.5 rounded-xl text-xs font-extrabold transition-all cursor-pointer ${
               selectedClass === 'all'
                 ? 'bg-slate-900 text-white shadow-xs'
@@ -310,26 +434,78 @@ export const StudentManager: React.FC<StudentManagerProps> = ({
             All Classes ({students.length})
           </button>
 
-          {classes.map((cls) => {
-            const count = students.filter((s) => s.className === cls.name).length;
-            const isCurrent = selectedClass === cls.name;
+          {allAvailableClasses.map((clsName) => {
+            const count = students.filter(
+              (s) => normalizeClassName(s.className) === normalizeClassName(clsName)
+            ).length;
+            const isCurrent = normalizeClassName(selectedClass) === normalizeClassName(clsName);
             return (
               <button
-                key={cls.id}
-                onClick={() => setSelectedClass(cls.name)}
+                key={clsName}
+                onClick={() => {
+                  setSelectedClass(clsName);
+                  setSelectedSection('all');
+                }}
                 className={`px-3 py-1.5 rounded-xl text-xs font-extrabold transition-all cursor-pointer flex items-center gap-1.5 ${
                   isCurrent
                     ? 'bg-blue-600 text-white shadow-xs'
                     : 'bg-slate-100 text-slate-700 hover:bg-blue-50 hover:text-blue-700 border border-transparent hover:border-blue-200'
                 }`}
               >
-                <span>{cls.name}</span>
+                <span>{clsName}</span>
                 <span
                   className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${
                     isCurrent ? 'bg-white/20 text-white' : 'bg-slate-200 text-slate-600'
                   }`}
                 >
                   {count}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+
+        {/* 2. Section Navigation Pills */}
+        <div className="flex flex-wrap items-center gap-1.5 pt-2 border-t border-slate-100 text-xs">
+          <span className="text-[10px] font-black uppercase tracking-wider text-slate-400 mr-1">
+            Section:
+          </span>
+          <button
+            onClick={() => setSelectedSection('all')}
+            className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+              selectedSection === 'all'
+                ? 'bg-blue-900 text-white shadow-xs'
+                : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+            }`}
+          >
+            All Sections
+          </button>
+          {['A', 'B', 'C', 'D'].map((sec) => {
+            const secCount = students.filter((s) => {
+              const matchCls =
+                selectedClass === 'all' ||
+                normalizeClassName(s.className) === normalizeClassName(selectedClass);
+              const matchSec = (s.section || 'A').trim().toUpperCase() === sec;
+              return matchCls && matchSec;
+            }).length;
+
+            return (
+              <button
+                key={sec}
+                onClick={() => setSelectedSection(sec)}
+                className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1 ${
+                  selectedSection === sec
+                    ? 'bg-blue-600 text-white shadow-xs'
+                    : 'bg-slate-50 text-slate-700 hover:bg-blue-50 border border-slate-200'
+                }`}
+              >
+                <span>Section {sec}</span>
+                <span
+                  className={`text-[9.5px] px-1.5 py-0.2 rounded-full font-bold ${
+                    selectedSection === sec ? 'bg-white/20 text-white' : 'bg-slate-200 text-slate-600'
+                  }`}
+                >
+                  {secCount}
                 </span>
               </button>
             );
@@ -424,14 +600,14 @@ export const StudentManager: React.FC<StudentManagerProps> = ({
                     )}
                   </button>
                 </th>
-                <th className="py-2.5 px-3">विद्यार्थी का नाम</th>
-                <th className="py-2.5 px-3">रोल नंबर</th>
-                <th className="py-2.5 px-3">कक्षा एवं वर्ग</th>
-                <th className="py-2.5 px-3">पिता का नाम</th>
-                <th className="py-2.5 px-3">प्रवेश क्रमांक</th>
-                <th className="py-2.5 px-3">प्रवेश पत्र क्रमांक</th>
-                <th className="py-2.5 px-3 text-center">कार्ड स्थिति</th>
-                <th className="py-2.5 px-3 text-right">कार्य (Actions)</th>
+                <th className="py-2.5 px-3">Student Name</th>
+                <th className="py-2.5 px-3">Roll No</th>
+                <th className="py-2.5 px-3">Class & Sec</th>
+                <th className="py-2.5 px-3">Father's Name</th>
+                <th className="py-2.5 px-3">Admission No</th>
+                <th className="py-2.5 px-3">Admit Card No</th>
+                <th className="py-2.5 px-3 text-center">Card Status</th>
+                <th className="py-2.5 px-3 text-right">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 text-slate-700">
@@ -440,10 +616,12 @@ export const StudentManager: React.FC<StudentManagerProps> = ({
                   <td colSpan={9} className="py-10 text-center text-slate-400">
                     <GraduationCap className="w-8 h-8 text-slate-300 mx-auto mb-2" />
                     <p className="font-bold text-slate-600">
-                      {selectedClass !== 'all' ? `${selectedClass} में कोई छात्र नहीं मिले` : 'कोई छात्र नहीं मिले'}
+                      {selectedClass !== 'all'
+                        ? `No students found in ${selectedClass}${selectedSection !== 'all' ? ` (Section ${selectedSection})` : ''}`
+                        : 'No students found'}
                     </p>
                     <p className="text-[11px] text-slate-400 mt-1">
-                      ऊपर "+ छात्र जोड़ें" या "📋 एक्सेल से पेस्ट करें" बटन पर क्लिक करके छात्र जोड़ें।
+                      Click "+ Add Student" or "📋 Paste from Excel" to add students to this class.
                     </p>
                   </td>
                 </tr>
@@ -566,11 +744,18 @@ export const StudentManager: React.FC<StudentManagerProps> = ({
               </h3>
               <button
                 onClick={() => setIsModalOpen(false)}
-                className="p-1 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-200"
+                className="p-1 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-200 cursor-pointer"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
+
+            {modalError && (
+              <div className="mx-5 mt-4 p-3 bg-red-50 border border-red-200 text-red-700 text-xs font-bold rounded-xl flex items-center gap-2">
+                <AlertTriangle className="w-4 h-4 text-red-600 flex-shrink-0" />
+                <span>{modalError}</span>
+              </div>
+            )}
 
             <form onSubmit={handleSaveSubmit} className="p-5 overflow-y-auto space-y-4">
               {/* Photo & Basic Details */}

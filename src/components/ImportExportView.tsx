@@ -25,6 +25,7 @@ import {
   Layers,
   Sparkles,
 } from 'lucide-react';
+import { findDuplicateStudent } from './StudentManager';
 
 interface ImportExportViewProps {
   students: Student[];
@@ -99,8 +100,27 @@ export const ImportExportView: React.FC<ImportExportViewProps> = ({
       onImportStudents(parsedExcelStudents);
       setImportStatus(`Successfully replaced and loaded ${parsedExcelStudents.length} students!`);
     } else {
-      onImportStudents([...students, ...parsedExcelStudents]);
-      setImportStatus(`Successfully added ${parsedExcelStudents.length} students across classes (Total: ${students.length + parsedExcelStudents.length})!`);
+      const uniqueStudents: Student[] = [];
+      let dupCount = 0;
+      parsedExcelStudents.forEach((ns) => {
+        if (!findDuplicateStudent(ns, [...students, ...uniqueStudents])) {
+          uniqueStudents.push(ns);
+        } else {
+          dupCount++;
+        }
+      });
+
+      if (uniqueStudents.length === 0) {
+        alert('All rows in this paste already exist in the database (duplicates). No new students were added.');
+        return;
+      }
+
+      onImportStudents([...students, ...uniqueStudents]);
+      setImportStatus(
+        dupCount > 0
+          ? `Successfully added ${uniqueStudents.length} students across classes (Skipped ${dupCount} duplicate entries)!`
+          : `Successfully added ${uniqueStudents.length} students across classes (Total: ${students.length + uniqueStudents.length})!`
+      );
     }
     setExcelText('');
     setParsedExcelStudents([]);
@@ -140,8 +160,28 @@ export const ImportExportView: React.FC<ImportExportViewProps> = ({
 
   const handleConfirmImport = () => {
     if (!stagedStudents) return;
-    onImportStudents([...students, ...stagedStudents]);
-    setImportStatus(`Successfully imported ${stagedStudents.length} students from CSV!`);
+    const uniqueStudents: Student[] = [];
+    let dupCount = 0;
+    stagedStudents.forEach((ns) => {
+      if (!findDuplicateStudent(ns, [...students, ...uniqueStudents])) {
+        uniqueStudents.push(ns);
+      } else {
+        dupCount++;
+      }
+    });
+
+    if (uniqueStudents.length === 0) {
+      alert('All students in this CSV already exist in the database (duplicates). No new students were added.');
+      setStagedStudents(null);
+      return;
+    }
+
+    onImportStudents([...students, ...uniqueStudents]);
+    setImportStatus(
+      dupCount > 0
+        ? `Successfully imported ${uniqueStudents.length} students from CSV (Skipped ${dupCount} duplicates)!`
+        : `Successfully imported ${uniqueStudents.length} students from CSV!`
+    );
     setStagedStudents(null);
     setTimeout(() => setImportStatus(''), 4000);
   };

@@ -8,11 +8,15 @@ import {
   AlertCircle,
   Loader2,
   CheckCircle2,
-  Sparkles,
   School,
   ArrowRight,
 } from 'lucide-react';
-import { loginWithGoogle, loginWithEmail, registerWithEmail } from '../utils/firebaseSync';
+import {
+  loginWithGoogle,
+  loginWithEmail,
+  sendAdminPasswordReset,
+  PRIMARY_ADMIN_EMAIL,
+} from '../utils/firebaseSync';
 
 interface AdminLoginModalProps {
   isOpen: boolean;
@@ -26,16 +30,14 @@ interface AdminLoginModalProps {
 export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({
   isOpen,
   onSuccess,
-  onClose,
   schoolName,
   logoUrl,
-  allowBypassDemo = true,
 }) => {
-  const [authMode, setAuthMode] = useState<'signin' | 'signup'>('signin');
-  const [email, setEmail] = useState('');
+  const [email, setEmail] = useState(PRIMARY_ADMIN_EMAIL);
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [isResetting, setIsResetting] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
 
@@ -44,19 +46,18 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({
   const handleGoogleLogin = async () => {
     setIsLoading(true);
     setErrorMsg(null);
+    setSuccessMsg(null);
     try {
       const user = await loginWithGoogle();
       setSuccessMsg(`Welcome, ${user.displayName || user.email}!`);
       setTimeout(() => {
-        onSuccess(user.email || 'Admin', user.displayName || undefined);
+        onSuccess(user.email || PRIMARY_ADMIN_EMAIL, user.displayName || undefined);
       }, 500);
     } catch (err: any) {
       if (err.code === 'auth/popup-closed-by-user') {
         setErrorMsg('Sign-in cancelled. Please try again.');
-      } else if (err.code === 'auth/unauthorized-domain') {
-        setErrorMsg('Domain not authorized in Firebase Auth. You can also log in with email/password or use Demo Mode.');
       } else {
-        setErrorMsg(err.message || 'Google sign-in failed. Please check credentials.');
+        setErrorMsg(err.message || 'Google sign-in failed. Please ensure you sign in with the authorized admin email.');
       }
     } finally {
       setIsLoading(false);
@@ -66,58 +67,52 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({
   const handleEmailAuth = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!email || !password) {
-      setErrorMsg('Please enter both email and password.');
-      return;
-    }
-    if (password.length < 6) {
-      setErrorMsg('Password must be at least 6 characters.');
+      setErrorMsg('Please enter both your admin email and password.');
       return;
     }
 
     setIsLoading(true);
     setErrorMsg(null);
+    setSuccessMsg(null);
     try {
-      if (authMode === 'signup') {
-        const user = await registerWithEmail(email, password);
-        setSuccessMsg(`Admin account created for ${user.email}!`);
-        setTimeout(() => {
-          onSuccess(user.email || email);
-        }, 600);
-      } else {
-        const user = await loginWithEmail(email, password);
-        setSuccessMsg(`Welcome back, ${user.email}!`);
-        setTimeout(() => {
-          onSuccess(user.email || email);
-        }, 500);
-      }
+      const user = await loginWithEmail(email, password);
+      setSuccessMsg(`Welcome, ${user.email}!`);
+      setTimeout(() => {
+        onSuccess(user.email || email);
+      }, 500);
     } catch (err: any) {
-      if (err.code === 'auth/user-not-found' || err.code === 'auth/wrong-password' || err.code === 'auth/invalid-credential') {
-        setErrorMsg('Invalid email or password. If you are new, click "Create Admin Account" below.');
-      } else if (err.code === 'auth/email-already-in-use') {
-        setErrorMsg('An admin account already exists with this email. Please switch to "Sign In".');
-      } else if (err.code === 'auth/weak-password') {
-        setErrorMsg('Password should be at least 6 characters.');
-      } else if (err.code === 'auth/operation-not-allowed') {
-        setErrorMsg('Email/Password provider is not yet enabled in Firebase Console. Please use "Sign in with Google" or Demo Mode.');
-      } else {
-        setErrorMsg(err.message || 'Authentication failed. Please verify credentials.');
-      }
+      setErrorMsg(err.message || 'Authentication failed. Please check your credentials.');
     } finally {
       setIsLoading(false);
     }
   };
 
-  const handleDemoBypass = () => {
-    onSuccess('admin@pandeypublicschool.edu', 'School Administrator (Demo)');
+  const handleForgotPassword = async () => {
+    const targetEmail = (email || PRIMARY_ADMIN_EMAIL).trim();
+    if (!targetEmail) {
+      setErrorMsg('Please enter your administrator email first.');
+      return;
+    }
+    setIsResetting(true);
+    setErrorMsg(null);
+    setSuccessMsg(null);
+    try {
+      await sendAdminPasswordReset(targetEmail);
+      setSuccessMsg(`Password reset link sent to ${targetEmail}. Please check your inbox.`);
+    } catch (err: any) {
+      setErrorMsg(err.message || 'Unable to send reset email. Please contact school administration.');
+    } finally {
+      setIsResetting(false);
+    }
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/75 backdrop-blur-xs p-4 overflow-y-auto animate-fadeIn">
-      <div className="bg-white rounded-3xl shadow-2xl max-w-md w-full border border-slate-200 overflow-hidden my-8">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 backdrop-blur-xs p-4 overflow-y-auto animate-fadeIn">
+      <div className="bg-white rounded-3xl shadow-2xl max-w-md w-full border border-slate-200 overflow-hidden my-6">
         {/* Header Branding */}
         <div className="bg-gradient-to-br from-slate-900 via-blue-950 to-slate-900 p-6 text-white text-center relative overflow-hidden">
-          <div className="absolute top-0 right-0 -mr-6 -mt-6 w-28 h-28 bg-blue-500/10 rounded-full blur-xl pointer-events-none" />
-          <div className="absolute bottom-0 left-0 -ml-6 -mb-6 w-28 h-28 bg-amber-500/10 rounded-full blur-xl pointer-events-none" />
+          <div className="absolute top-0 right-0 -mr-6 -mt-6 w-32 h-32 bg-blue-500/10 rounded-full blur-xl pointer-events-none" />
+          <div className="absolute bottom-0 left-0 -ml-6 -mb-6 w-32 h-32 bg-amber-500/10 rounded-full blur-xl pointer-events-none" />
 
           <div className="relative z-10 flex flex-col items-center">
             {logoUrl ? (
@@ -134,15 +129,15 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({
             )}
 
             <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider bg-blue-500/20 text-blue-200 px-2.5 py-0.5 rounded-full mb-1.5 border border-blue-400/20">
-              <ShieldCheck className="w-3 h-3 text-emerald-400" /> Admin Portal & Exam Control
+              <ShieldCheck className="w-3 h-3 text-emerald-400" /> Authorized Admin Login
             </span>
             <h2 className="text-base sm:text-lg font-black tracking-tight">{schoolName}</h2>
-            <p className="text-xs text-slate-300 mt-0.5">Password-Protected Examination Database</p>
+            <p className="text-xs text-slate-300 mt-0.5">Examination Controller & Admit Card Portal</p>
           </div>
         </div>
 
         {/* Content Body */}
-        <div className="p-6 space-y-5">
+        <div className="p-6 space-y-4">
           {errorMsg && (
             <div className="p-3 bg-red-50 border border-red-200 text-red-700 text-xs font-semibold rounded-xl flex items-start gap-2 animate-fadeIn">
               <AlertCircle className="w-4 h-4 text-red-600 flex-shrink-0 mt-0.5" />
@@ -153,7 +148,7 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({
           {successMsg && (
             <div className="p-3 bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs font-semibold rounded-xl flex items-center gap-2 animate-fadeIn">
               <CheckCircle2 className="w-4 h-4 text-emerald-600 flex-shrink-0" />
-              <span>{successMsg}</span>
+              <div className="flex-1">{successMsg}</div>
             </div>
           )}
 
@@ -189,44 +184,16 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({
 
           <div className="relative flex items-center justify-center">
             <div className="border-t border-slate-200 w-full" />
-            <span className="bg-white px-3 text-[11px] font-bold text-slate-400 uppercase tracking-wider relative">
-              Or with Email & Password
+            <span className="bg-white px-3 text-[10.5px] font-bold text-slate-400 uppercase tracking-wider relative">
+              Or with Admin Password
             </span>
           </div>
 
-          {/* Mode Switcher Tabs */}
-          <div className="flex bg-slate-100 p-1 rounded-xl">
-            <button
-              type="button"
-              onClick={() => {
-                setAuthMode('signin');
-                setErrorMsg(null);
-              }}
-              className={`flex-1 py-1.5 text-xs font-bold rounded-lg transition-all cursor-pointer ${
-                authMode === 'signin' ? 'bg-white text-slate-900 shadow-2xs' : 'text-slate-500 hover:text-slate-800'
-              }`}
-            >
-              Sign In
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setAuthMode('signup');
-                setErrorMsg(null);
-              }}
-              className={`flex-1 py-1.5 text-xs font-bold rounded-lg transition-all cursor-pointer ${
-                authMode === 'signup' ? 'bg-white text-slate-900 shadow-2xs' : 'text-slate-500 hover:text-slate-800'
-              }`}
-            >
-              Create Admin Account
-            </button>
-          </div>
-
           {/* Email / Password Form */}
-          <form onSubmit={handleEmailAuth} className="space-y-3">
+          <form onSubmit={handleEmailAuth} className="space-y-3.5">
             <div>
               <label className="block text-xs font-bold text-slate-700 mb-1">
-                Admin Email Address
+                Admin Email ID
               </label>
               <div className="relative">
                 <Mail className="w-4 h-4 text-slate-400 absolute left-3 top-2.5 pointer-events-none" />
@@ -242,16 +209,24 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({
             </div>
 
             <div>
-              <label className="block text-xs font-bold text-slate-700 mb-1">
-                Password
-              </label>
+              <div className="flex items-center justify-between mb-1">
+                <label className="text-xs font-bold text-slate-700">Password</label>
+                <button
+                  type="button"
+                  onClick={handleForgotPassword}
+                  disabled={isResetting}
+                  className="text-[11px] font-bold text-blue-600 hover:text-blue-800 transition-colors cursor-pointer"
+                >
+                  {isResetting ? 'Sending link...' : 'Forgot Password?'}
+                </button>
+              </div>
               <div className="relative">
                 <Lock className="w-4 h-4 text-slate-400 absolute left-3 top-2.5 pointer-events-none" />
                 <input
                   type={showPassword ? 'text' : 'password'}
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  placeholder="••••••••"
+                  placeholder="Enter admin password"
                   required
                   className="w-full pl-9 pr-9 py-2 text-xs rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500 font-medium"
                 />
@@ -268,35 +243,21 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({
             <button
               type="submit"
               disabled={isLoading}
-              className="w-full py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-xl shadow-md transition-all active:scale-98 flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 mt-2"
+              className="w-full py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-xl shadow-md transition-all active:scale-98 flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 mt-1"
             >
               {isLoading ? (
                 <>
                   <Loader2 className="w-4 h-4 animate-spin" />
-                  <span>Authenticating...</span>
+                  <span>Verifying...</span>
                 </>
               ) : (
                 <>
-                  <span>{authMode === 'signup' ? 'Create Admin Account' : 'Sign In as Administrator'}</span>
+                  <span>Sign In as Administrator</span>
                   <ArrowRight className="w-4 h-4" />
                 </>
               )}
             </button>
           </form>
-
-          {/* Quick Demo Mode Bypass */}
-          {allowBypassDemo && (
-            <div className="pt-2 border-t border-slate-100 flex flex-col items-center">
-              <button
-                type="button"
-                onClick={handleDemoBypass}
-                className="text-xs font-semibold text-slate-500 hover:text-blue-600 transition-colors flex items-center gap-1 cursor-pointer py-1"
-              >
-                <Sparkles className="w-3.5 h-3.5 text-amber-500" />
-                <span>Continue in Demo Mode (Without Login)</span>
-              </button>
-            </div>
-          )}
         </div>
       </div>
     </div>

@@ -15,6 +15,7 @@ import {
 import { INITIAL_DATE_SHEET } from '../utils/defaultData';
 import { A4PrintSheet } from './A4PrintSheet';
 import { downloadAdmitCardsPdf, triggerPrintSheet } from '../utils/pdfExport';
+import { normalizeClassName } from './StudentManager';
 import {
   Printer,
   Download,
@@ -102,12 +103,24 @@ export const PrintPreviewView: React.FC<PrintPreviewViewProps> = ({
     }
   }, [initialSelectedStudentIds]);
 
+  // Sync if initialClassFilter changes
+  useEffect(() => {
+    if (initialClassFilter) {
+      setSelectedClassFilter(initialClassFilter);
+      if (initialClassFilter !== 'all') {
+        setFilterMode('class');
+      }
+    }
+  }, [initialClassFilter]);
+
   // Compute active students to print
   let activeStudents: Student[] = [];
   if (filterMode === 'selected') {
     activeStudents = students.filter((s) => selectedStudentIds.includes(s.id));
   } else if (filterMode === 'class' && selectedClassFilter !== 'all') {
-    activeStudents = students.filter((s) => s.className === selectedClassFilter);
+    activeStudents = students.filter(
+      (s) => normalizeClassName(s.className) === normalizeClassName(selectedClassFilter)
+    );
   } else {
     activeStudents = students;
   }
