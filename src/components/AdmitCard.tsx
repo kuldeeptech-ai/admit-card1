@@ -78,13 +78,13 @@ export const AdmitCard: React.FC<AdmitCardProps> = ({
     );
   };
 
-  // Upload presence checks for signatures and seal - do not show anything unless uploaded
+  // Upload presence checks for signatures and seal
   const hasUploadedTeacherSign = Boolean(school.classTeacherSignatureUrl && school.classTeacherSignatureUrl.trim() !== '');
   const hasUploadedPrincipalSign = Boolean(school.principalSignatureUrl && school.principalSignatureUrl.trim() !== '');
   const hasUploadedStamp = Boolean(school.stampUrl && school.stampUrl.trim() !== '');
-  const showCandidateSign = Boolean(visibility.studentSignature);
-  const showTeacherSign = Boolean(visibility.classTeacherSignature && hasUploadedTeacherSign);
-  const showPrincipalSignOrStamp = Boolean((visibility.principalSignature && hasUploadedPrincipalSign) || (visibility.schoolStamp && hasUploadedStamp));
+  const showCandidateSign = visibility.studentSignature !== false;
+  const showTeacherSign = visibility.classTeacherSignature !== false;
+  const showPrincipalSignOrStamp = visibility.principalSignature !== false || (visibility.schoolStamp && hasUploadedStamp);
   const showSignaturesSection = showCandidateSign || showTeacherSign || showPrincipalSignOrStamp;
 
   const [qrCodeUrl, setQrCodeUrl] = useState<string>('');
@@ -684,7 +684,7 @@ export const AdmitCard: React.FC<AdmitCardProps> = ({
             </div>
           )}
 
-          {/* BOTTOM SECTION: 3 Authentic Signature Stations (Only shown when uploaded) */}
+          {/* BOTTOM SECTION: 3 Authentic Signature Stations (Physical Pen Sign Space or Digital Upload) */}
           {showSignaturesSection && (
             <div
               className="pt-1 border-t flex items-end justify-between text-center mt-auto"
@@ -693,62 +693,75 @@ export const AdmitCard: React.FC<AdmitCardProps> = ({
               {/* Station 1: Candidate Sign */}
               {showCandidateSign && (
                 <div className="flex-1 flex flex-col items-center">
-                  <div className="h-4 w-24 border-b border-slate-400 mb-0.5 flex items-center justify-center" />
+                  <div className="h-8 w-24 mb-0.5 flex items-end justify-center">
+                    {/* Clean space for physical pen signature */}
+                  </div>
+                  <div className="w-24 border-b-2 border-slate-700 mb-0.5" />
                   <span
-                    className="font-bold text-slate-800 uppercase leading-tight"
+                    className="font-bold text-slate-800 uppercase tracking-tight"
                     style={{ fontSize: `${Math.round(8.5 * fontSizeFactor)}px` }}
                   >
-                    Candidate Sign
+                    Candidate's Signature
                   </span>
                 </div>
               )}
 
-              {/* Station 2: Class Teacher Signature (Shown only if uploaded) */}
+              {/* Station 2: Class Teacher Signature */}
               {showTeacherSign && (
                 <div className="flex-1 flex flex-col items-center">
-                  <div className="h-4 w-24 flex items-center justify-center border-b border-slate-400 mb-0.5">
-                    <img
-                      src={school.classTeacherSignatureUrl}
-                      alt="Teacher Sign"
-                      className="h-3.5 object-contain"
-                      referrerPolicy="no-referrer"
-                    />
+                  <div className="h-8 w-24 mb-0.5 flex items-end justify-center relative">
+                    {hasUploadedTeacherSign ? (
+                      <img
+                        src={school.classTeacherSignatureUrl}
+                        alt="Teacher Sign"
+                        className="max-h-7 max-w-[90px] object-contain"
+                        referrerPolicy="no-referrer"
+                      />
+                    ) : (
+                      /* Clean space for manual pen signature by teacher */
+                      <div className="h-full w-full" />
+                    )}
                   </div>
+                  <div className="w-24 border-b-2 border-slate-700 mb-0.5" />
                   <span
-                    className="font-bold text-slate-800 uppercase leading-tight"
+                    className="font-bold text-slate-800 uppercase tracking-tight"
                     style={{ fontSize: `${Math.round(8.5 * fontSizeFactor)}px` }}
                   >
-                    Class Teacher
+                    Class Teacher's Sign
                   </span>
                 </div>
               )}
 
-              {/* Station 3: Principal / Manager Signature & Seal (Shown only if uploaded) */}
+              {/* Station 3: Principal / Center Supdt. Signature & Stamp */}
               {showPrincipalSignOrStamp && (
                 <div className="flex-1 flex flex-col items-center relative">
-                  <div className="h-4 w-28 flex items-center justify-center border-b border-slate-400 mb-0.5 relative">
+                  <div className="h-8 w-28 mb-0.5 flex items-end justify-center relative">
                     {visibility.schoolStamp && hasUploadedStamp && (
                       <img
                         src={school.stampUrl}
                         alt="School Seal"
-                        className="h-9 w-9 object-contain absolute -top-4 right-0 mix-blend-multiply opacity-80 pointer-events-none"
+                        className="h-10 w-10 object-contain absolute -top-3 right-0 mix-blend-multiply opacity-85 pointer-events-none"
                         referrerPolicy="no-referrer"
                       />
                     )}
-                    {hasUploadedPrincipalSign && (
+                    {hasUploadedPrincipalSign ? (
                       <img
                         src={school.principalSignatureUrl}
                         alt="Principal Sign"
-                        className="h-4 object-contain"
+                        className="max-h-7 max-w-[95px] object-contain relative z-10"
                         referrerPolicy="no-referrer"
                       />
+                    ) : (
+                      /* Clean space for manual pen signature and stamp by Principal */
+                      <div className="h-full w-full" />
                     )}
                   </div>
+                  <div className="w-28 border-b-2 border-slate-700 mb-0.5" />
                   <span
-                    className="font-black uppercase leading-tight"
+                    className="font-black uppercase tracking-tight"
                     style={{ color: primaryCol, fontSize: `${Math.round(8.5 * fontSizeFactor)}px` }}
                   >
-                    Principal / Manager
+                    Principal / Center Supdt.
                   </span>
                 </div>
               )}
@@ -914,7 +927,7 @@ export const AdmitCard: React.FC<AdmitCardProps> = ({
             )}
           </div>
 
-          {/* Signatures Row (Shown only if uploaded) */}
+          {/* Signatures Row (Physical Pen Sign Space or Digital Upload) */}
           {showSignaturesSection && (
             <div
               className="pt-1 border-t flex items-end justify-between text-center mt-auto"
@@ -922,28 +935,45 @@ export const AdmitCard: React.FC<AdmitCardProps> = ({
             >
               {showCandidateSign && (
                 <div className="flex-1 flex flex-col items-center">
-                  <div className="h-4 w-14 border-b border-slate-400 mb-0.5" />
-                  <span className="font-bold text-slate-700 uppercase text-[8px]">Candidate Sign</span>
+                  <div className="h-6 w-16 mb-0.5" />
+                  <div className="w-16 border-b border-slate-700 mb-0.5" />
+                  <span className="font-bold text-slate-700 uppercase text-[7.5px]">Candidate Sign</span>
                 </div>
               )}
 
               {showTeacherSign && (
                 <div className="flex-1 flex flex-col items-center">
-                  <div className="h-4 w-14 flex items-center justify-center border-b border-slate-400 mb-0.5">
-                    <img src={school.classTeacherSignatureUrl} alt="" className="h-3.5 object-contain" referrerPolicy="no-referrer" />
+                  <div className="h-6 w-16 flex items-end justify-center mb-0.5">
+                    {hasUploadedTeacherSign ? (
+                      <img src={school.classTeacherSignatureUrl} alt="" className="max-h-5 object-contain" referrerPolicy="no-referrer" />
+                    ) : (
+                      <div className="h-full w-full" />
+                    )}
                   </div>
-                  <span className="font-bold text-slate-700 uppercase text-[8px]">Class Teacher</span>
+                  <div className="w-16 border-b border-slate-700 mb-0.5" />
+                  <span className="font-bold text-slate-700 uppercase text-[7.5px]">Class Teacher</span>
                 </div>
               )}
 
               {showPrincipalSignOrStamp && (
                 <div className="flex-1 flex flex-col items-center">
-                  <div className="h-4 w-16 flex items-center justify-center border-b border-slate-400 mb-0.5">
-                    {hasUploadedPrincipalSign && (
-                      <img src={school.principalSignatureUrl} alt="" className="h-3.5 object-contain" referrerPolicy="no-referrer" />
+                  <div className="h-6 w-16 flex items-end justify-center mb-0.5 relative">
+                    {visibility.schoolStamp && hasUploadedStamp && (
+                      <img
+                        src={school.stampUrl}
+                        alt=""
+                        className="h-8 w-8 object-contain absolute -top-2 right-0 mix-blend-multiply opacity-80 pointer-events-none"
+                        referrerPolicy="no-referrer"
+                      />
+                    )}
+                    {hasUploadedPrincipalSign ? (
+                      <img src={school.principalSignatureUrl} alt="" className="max-h-5 object-contain relative z-10" referrerPolicy="no-referrer" />
+                    ) : (
+                      <div className="h-full w-full" />
                     )}
                   </div>
-                  <span className="font-bold text-slate-900 uppercase text-[8px]">Principal / Manager</span>
+                  <div className="w-16 border-b border-slate-700 mb-0.5" />
+                  <span className="font-bold text-slate-900 uppercase text-[7.5px]">Principal / Supdt.</span>
                 </div>
               )}
             </div>

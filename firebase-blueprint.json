@@ -1,0 +1,118 @@
+{
+  "entities": {
+    "Student": {
+      "title": "Student",
+      "description": "Student record for admit card generation",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "name": { "type": "string" },
+        "fatherName": { "type": "string" },
+        "motherName": { "type": "string" },
+        "rollNo": { "type": "string" },
+        "className": { "type": "string" },
+        "section": { "type": "string" },
+        "dob": { "type": "string" },
+        "mobile": { "type": "string" },
+        "address": { "type": "string" },
+        "photoUrl": { "type": "string" },
+        "examCenter": { "type": "string" },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["id", "userId", "name", "rollNo", "className"]
+    },
+    "SchoolSettings": {
+      "title": "SchoolSettings",
+      "description": "School information, official logo, signatures and seal",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "name": { "type": "string" },
+        "principalName": { "type": "string" },
+        "address": { "type": "string" },
+        "contactNumber": { "type": "string" },
+        "academicSession": { "type": "string" },
+        "admitCardPrefix": { "type": "string" },
+        "logoUrl": { "type": "string" },
+        "principalSignatureUrl": { "type": "string" },
+        "classTeacherSignatureUrl": { "type": "string" },
+        "stampUrl": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["userId", "name"]
+    },
+    "Examination": {
+      "title": "Examination",
+      "description": "Examination session details",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "name": { "type": "string" },
+        "academicSession": { "type": "string" },
+        "startDate": { "type": "string" },
+        "endDate": { "type": "string" },
+        "reportingTime": { "type": "string" },
+        "examStartTime": { "type": "string" },
+        "examEndTime": { "type": "string" },
+        "centerName": { "type": "string" },
+        "status": { "type": "string" }
+      },
+      "required": ["id", "userId", "name"]
+    },
+    "DateSheetItem": {
+      "title": "DateSheetItem",
+      "description": "Timetable schedule item for a subject and class",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "examId": { "type": "string" },
+        "className": { "type": "string" },
+        "subject": { "type": "string" },
+        "date": { "type": "string" },
+        "day": { "type": "string" },
+        "time": { "type": "string" },
+        "code": { "type": "string" }
+      },
+      "required": ["id", "userId", "examId", "subject", "date"]
+    },
+    "InstructionItem": {
+      "title": "InstructionItem",
+      "description": "Candidate instruction rule printed on admit card",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "text": { "type": "string" },
+        "isActive": { "type": "boolean" },
+        "order": { "type": "number" }
+      },
+      "required": ["id", "userId", "text"]
+    }
+  },
+  "firestore": {
+    "/students/{studentId}": {
+      "schema": "Student",
+      "description": "Student admissions and exam candidate records"
+    },
+    "/schools/{userId}": {
+      "schema": "SchoolSettings",
+      "description": "School institution profile and digital assets"
+    },
+    "/exams/{examId}": {
+      "schema": "Examination",
+      "description": "Examination terms and sessions"
+    },
+    "/dateSheets/{dateSheetId}": {
+      "schema": "DateSheetItem",
+      "description": "Subject schedules and examination timetables"
+    },
+    "/instructions/{instructionId}": {
+      "schema": "InstructionItem",
+      "description": "Exam day regulations and candidate guidelines"
+    }
+  }
+}

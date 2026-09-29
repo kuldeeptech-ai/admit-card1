@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Student,
   SchoolSettings,
@@ -27,6 +27,18 @@ import { SchoolSettingsView } from './components/SchoolSettingsView';
 import { PrintPreviewView } from './components/PrintPreviewView';
 import { ImportExportView } from './components/ImportExportView';
 import { SystemSettingsModal } from './components/SystemSettingsModal';
+import { AdminLoginModal } from './components/AdminLoginModal';
+import { testFirestoreConnection } from './firebase';
+import {
+  subscribeToAuth,
+  logoutUser,
+  fetchStudentsFromFirestore,
+  saveStudentToFirestore,
+  deleteStudentFromFirestore,
+  syncBatchStudentsToFirestore,
+  fetchSchoolSettingsFromFirestore,
+  saveSchoolSettingsToFirestore,
+} from './utils/firebaseSync';
 
 export default function App() {
   // Navigation State
@@ -66,6 +78,72 @@ export default function App() {
   );
   const [selectedForPrintIds, setSelectedForPrintIds] = useState<string[] | null>(null);
 
+  // Firebase Authentication & Cloud Sync State
+  const [currentUser, setCurrentUser] = useState<any>(null);
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(() => {
+    return localStorage.getItem('school_admin_authenticated') === 'true';
+  });
+  const [isLoginModalOpen, setIsLoginModalOpen] = useState<boolean>(() => {
+    return localStorage.getItem('school_admin_authenticated') !== 'true';
+  });
+  const [cloudSyncStatus, setCloudSyncStatus] = useState<'synced' | 'syncing' | 'offline'>('synced');
+
+  // Firebase Auth & Firestore Sync Lifecycle
+  useEffect(() => {
+    testFirestoreConnection();
+
+    const unsubscribe = subscribeToAuth(async (user) => {
+      if (user) {
+        setCurrentUser(user);
+        setIsAuthenticated(true);
+        localStorage.setItem('school_admin_authenticated', 'true');
+        setIsLoginModalOpen(false);
+        setCloudSyncStatus('syncing');
+
+        try {
+          // 1. Fetch Students from Firestore
+          const fsStudents = await fetchStudentsFromFirestore(user.uid);
+          if (fsStudents && fsStudents.length > 0) {
+            setStudents(fsStudents);
+            StorageService.setStudents(fsStudents);
+          } else {
+            // First time login for this user: sync default/existing students to Firestore
+            const localStudents = StorageService.getStudents();
+            if (localStudents.length > 0) {
+              await syncBatchStudentsToFirestore(user.uid, localStudents);
+            }
+          }
+
+          // 2. Fetch School Settings from Firestore
+          const fsSchool = await fetchSchoolSettingsFromFirestore(user.uid);
+          if (fsSchool) {
+            setSchool(fsSchool);
+            StorageService.setSchoolSettings(fsSchool);
+          } else {
+            const localSchool = StorageService.getSchoolSettings();
+            await saveSchoolSettingsToFirestore(user.uid, localSchool);
+          }
+
+          setCloudSyncStatus('synced');
+        } catch (err) {
+          console.error('Initial Firestore Sync Error:', err);
+          setCloudSyncStatus('offline');
+        }
+      } else {
+        setCurrentUser(null);
+        const isDemo =
+          localStorage.getItem('school_admin_authenticated') === 'true' &&
+          localStorage.getItem('school_admin_demo') === 'true';
+        if (!isDemo) {
+          setIsAuthenticated(false);
+          setIsLoginModalOpen(true);
+        }
+      }
+    });
+
+    return () => unsubscribe();
+  }, []);
+
   // Sync active exam
   const currentExam =
     examinations.find((e) => e.id === activeExamId) || examinations[0];
@@ -78,24 +156,46 @@ export default function App() {
       : [student, ...students];
     setStudents(updated);
     StorageService.setStudents(updated);
+
+    if (currentUser?.uid) {
+      setCloudSyncStatus('syncing');
+      saveStudentToFirestore(currentUser.uid, student)
+        .then(() => setCloudSyncStatus('synced'))
+        .catch(() => setCloudSyncStatus('offline'));
+    }
   };
 
   const handleBulkAddStudents = (newStudents: Student[]) => {
     const updated = [...newStudents, ...students];
     setStudents(updated);
     StorageService.setStudents(updated);
+
+    if (currentUser?.uid) {
+      setCloudSyncStatus('syncing');
+      syncBatchStudentsToFirestore(currentUser.uid, newStudents)
+        .then(() => setCloudSyncStatus('synced'))
+        .catch(() => setCloudSyncStatus('offline'));
+    }
   };
 
   const handleDeleteStudent = (id: string) => {
     const updated = students.filter((s) => s.id !== id);
     setStudents(updated);
     StorageService.setStudents(updated);
+
+    if (currentUser?.uid) {
+      deleteStudentFromFirestore(currentUser.uid, id).catch(() => setCloudSyncStatus('offline'));
+    }
   };
 
   const handleDeleteMultipleStudents = (ids: string[]) => {
     const updated = students.filter((s) => !ids.includes(s.id));
     setStudents(updated);
     StorageService.setStudents(updated);
+
+    if (currentUser?.uid) {
+      ids.forEach((id) => deleteStudentFromFirestore(currentUser.uid, id).catch(() => {}));
+    }
   };
 
   const handleGenerateAdmitCards = (ids: string[]) => {
@@ -236,6 +336,35 @@ export default function App() {
   const handleSaveSchool = (newSchool: SchoolSettings) => {
     setSchool(newSchool);
     StorageService.setSchoolSettings(newSchool);
+
+    if (currentUser?.uid) {
+      setCloudSyncStatus('syncing');
+      saveSchoolSettingsToFirestore(currentUser.uid, newSchool)
+        .then(() => setCloudSyncStatus('synced'))
+        .catch(() => setCloudSyncStatus('offline'));
+    }
+  };
+
+  const handleLogout = async () => {
+    try {
+      await logoutUser();
+    } catch (e) {
+      console.error(e);
+    }
+    localStorage.removeItem('school_admin_authenticated');
+    localStorage.removeItem('school_admin_demo');
+    setIsAuthenticated(false);
+    setCurrentUser(null);
+    setIsLoginModalOpen(true);
+  };
+
+  const handleLoginSuccess = (_email: string, _displayName?: string) => {
+    setIsAuthenticated(true);
+    localStorage.setItem('school_admin_authenticated', 'true');
+    if (!currentUser) {
+      localStorage.setItem('school_admin_demo', 'true');
+    }
+    setIsLoginModalOpen(false);
   };
 
   const handleSaveDateSheet = (newDateSheet: DateSheetItem[]) => {
@@ -262,6 +391,13 @@ export default function App() {
   const handleImportStudents = (newStudents: Student[]) => {
     setStudents(newStudents);
     StorageService.setStudents(newStudents);
+
+    if (currentUser?.uid) {
+      setCloudSyncStatus('syncing');
+      syncBatchStudentsToFirestore(currentUser.uid, newStudents)
+        .then(() => setCloudSyncStatus('synced'))
+        .catch(() => setCloudSyncStatus('offline'));
+    }
   };
 
   const handleExportFullBackup = () => {
@@ -310,8 +446,11 @@ export default function App() {
         onOpenPrint={() => setActiveTab('print_pdf')}
         onOpenPreview={() => setActiveTab('preview')}
         userSession={userSession}
-        onOpenLoginModal={() => setIsSystemModalOpen(true)}
+        onOpenLoginModal={() => setIsLoginModalOpen(true)}
+        onLogout={handleLogout}
         onToggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)}
+        cloudSyncStatus={cloudSyncStatus}
+        currentUserEmail={currentUser?.email || (isAuthenticated ? 'admin@pandeypublicschool.edu' : null)}
       />
 
       {/* Main Layout Container */}
@@ -506,6 +645,18 @@ export default function App() {
         userSession={userSession}
         school={school}
         onSaveSession={handleSaveSession}
+      />
+
+      {/* Password & Firebase Auth Gateway for Admin Access */}
+      <AdminLoginModal
+        isOpen={isLoginModalOpen || !isAuthenticated}
+        onSuccess={handleLoginSuccess}
+        onClose={() => {
+          if (isAuthenticated) setIsLoginModalOpen(false);
+        }}
+        schoolName={school.name}
+        logoUrl={school.logoUrl}
+        allowBypassDemo={true}
       />
     </div>
   );

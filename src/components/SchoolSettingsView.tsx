@@ -357,7 +357,7 @@ export const SchoolSettingsView: React.FC<SchoolSettingsViewProps> = ({
                   Official Signatures, Seal & School Emblem
                 </h3>
                 <p className="text-[11px] text-slate-500">
-                  Upload images or paste direct links. Items without an uploaded image remain hidden on admit cards.
+                  Upload digital signature or seal images to print them automatically. If left empty, designated signature lines will be printed for manual pen signing.
                 </p>
               </div>
             </div>

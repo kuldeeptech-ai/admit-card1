@@ -4,7 +4,7 @@ import {
   Examination,
   UserSession,
 } from '../types';
-import { Printer, Eye, BookOpen, Menu, Sparkles, UserCheck } from 'lucide-react';
+import { Printer, Eye, BookOpen, Menu, Sparkles, LogOut, CloudCheck, ShieldCheck } from 'lucide-react';
 
 interface NavbarProps {
   school: SchoolSettings;
@@ -15,7 +15,10 @@ interface NavbarProps {
   onOpenPreview: () => void;
   userSession: UserSession;
   onOpenLoginModal: () => void;
+  onLogout?: () => void;
   onToggleSidebar: () => void;
+  cloudSyncStatus?: 'synced' | 'syncing' | 'offline';
+  currentUserEmail?: string | null;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -27,8 +30,14 @@ export const Navbar: React.FC<NavbarProps> = ({
   onOpenPreview,
   userSession,
   onOpenLoginModal,
+  onLogout,
   onToggleSidebar,
+  cloudSyncStatus = 'synced',
+  currentUserEmail,
 }) => {
+  const displayUser = currentUserEmail || school.managedBy || 'Administrator';
+  const userInitial = (displayUser[0] || 'A').toUpperCase();
+
   return (
     <header className="no-print sticky top-0 z-50 bg-slate-900 text-white border-b border-slate-800 shadow-md">
       <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-2 sm:gap-4">
@@ -58,40 +67,48 @@ export const Navbar: React.FC<NavbarProps> = ({
             )}
             <div className="min-w-0">
               <div className="flex items-center gap-1.5">
-                <h1 className="font-extrabold text-xs sm:text-sm md:text-base tracking-tight text-white truncate max-w-[180px] xs:max-w-[240px] sm:max-w-[320px] md:max-w-[420px]">
+                <h1 className="font-extrabold text-xs sm:text-sm md:text-base tracking-tight text-white truncate max-w-[180px] xs:max-w-[240px] sm:max-w-[320px] md:max-w-[380px]">
                   {school.name}
                 </h1>
                 <span className="hidden xl:inline-flex items-center gap-1 text-[10px] font-semibold bg-blue-900/60 text-blue-200 border border-blue-700/50 px-2 py-0.5 rounded-full flex-shrink-0">
                   <Sparkles className="w-3 h-3 text-amber-300" /> Admit Card System
                 </span>
               </div>
-              <p className="text-[10px] text-slate-400 truncate hidden md:block max-w-[360px] lg:max-w-[440px]">
+              <p className="text-[10px] text-slate-400 truncate hidden md:block max-w-[320px] lg:max-w-[380px]">
                 {school.address} • Manager: {school.managedBy}
               </p>
             </div>
           </div>
         </div>
 
-        {/* Center: Active Exam Selector */}
-        <div className="hidden xl:flex items-center gap-2 bg-slate-800/90 border border-slate-700/70 rounded-lg px-3 py-1.5 flex-shrink-0">
-          <BookOpen className="w-4 h-4 text-amber-400 flex-shrink-0" />
-          <span className="text-xs font-medium text-slate-300">Exam:</span>
-          <select
-            value={activeExamId}
-            onChange={(e) => onSelectActiveExam(e.target.value)}
-            className="bg-slate-900 text-xs font-bold text-white rounded px-2 py-1 border border-slate-600 focus:outline-none focus:ring-1 focus:ring-blue-500 cursor-pointer max-w-[220px] truncate"
-          >
-            {examinations.map((ex) => (
-              <option key={ex.id} value={ex.id}>
-                {ex.name}
-              </option>
-            ))}
-          </select>
-          <span className="inline-block w-2 h-2 rounded-full bg-emerald-400 animate-pulse flex-shrink-0" title="Active Examination" />
+        {/* Center: Active Exam Selector & Cloud Status */}
+        <div className="hidden lg:flex items-center gap-2.5">
+          <div className="flex items-center gap-2 bg-slate-800/90 border border-slate-700/70 rounded-lg px-3 py-1.5 flex-shrink-0">
+            <BookOpen className="w-4 h-4 text-amber-400 flex-shrink-0" />
+            <span className="text-xs font-medium text-slate-300">Exam:</span>
+            <select
+              value={activeExamId}
+              onChange={(e) => onSelectActiveExam(e.target.value)}
+              className="bg-slate-900 text-xs font-bold text-white rounded px-2 py-1 border border-slate-600 focus:outline-none focus:ring-1 focus:ring-blue-500 cursor-pointer max-w-[200px] truncate"
+            >
+              {examinations.map((ex) => (
+                <option key={ex.id} value={ex.id}>
+                  {ex.name}
+                </option>
+              ))}
+            </select>
+            <span className="inline-block w-2 h-2 rounded-full bg-emerald-400 animate-pulse flex-shrink-0" title="Active Examination" />
+          </div>
+
+          {/* Firestore Cloud Sync Badge */}
+          <div className="hidden xl:flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-950/60 border border-emerald-600/40 text-emerald-300 text-[10px] font-bold">
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+            <span>Firestore Synced</span>
+          </div>
         </div>
 
         {/* Right: Quick Actions */}
-        <div className="flex items-center gap-1.5 sm:gap-3 flex-shrink-0">
+        <div className="flex items-center gap-1.5 sm:gap-2.5 flex-shrink-0">
           <button
             onClick={onOpenPreview}
             className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 text-xs font-semibold rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition-colors shadow-2xs cursor-pointer"
@@ -110,20 +127,32 @@ export const Navbar: React.FC<NavbarProps> = ({
             <span>Print A4</span>
           </button>
 
-          {/* Admin Profile Button */}
-          <button
-            onClick={onOpenLoginModal}
-            className="flex items-center gap-1.5 sm:gap-2 pl-1.5 sm:pl-3 border-l border-slate-700 hover:opacity-90 transition-opacity cursor-pointer flex-shrink-0"
-            title="Admin Profile"
-          >
-            <div className="w-7 h-7 rounded-full bg-gradient-to-tr from-amber-500 to-amber-300 text-slate-950 font-black text-xs flex items-center justify-center flex-shrink-0">
-              MP
-            </div>
-            <div className="hidden 2xl:block text-left">
-              <span className="block text-xs font-bold text-white line-clamp-1">{school.managedBy || 'Manoj Pandey'}</span>
-              <span className="block text-[10px] text-amber-300/90 font-medium">Administrator</span>
-            </div>
-          </button>
+          {/* Admin User Profile */}
+          <div className="flex items-center gap-2 pl-2 sm:pl-3 border-l border-slate-700">
+            <button
+              onClick={onOpenLoginModal}
+              className="flex items-center gap-1.5 sm:gap-2 hover:opacity-90 transition-opacity cursor-pointer flex-shrink-0 text-left"
+              title="Admin Account Details"
+            >
+              <div className="w-7 h-7 rounded-full bg-gradient-to-tr from-amber-500 to-amber-300 text-slate-950 font-black text-xs flex items-center justify-center flex-shrink-0 shadow-2xs">
+                {userInitial}
+              </div>
+              <div className="hidden md:block max-w-[130px] lg:max-w-[170px] truncate">
+                <span className="block text-xs font-bold text-white truncate">{displayUser}</span>
+                <span className="block text-[10px] text-amber-300 font-medium">Administrator</span>
+              </div>
+            </button>
+
+            {onLogout && (
+              <button
+                onClick={onLogout}
+                className="p-1.5 text-slate-400 hover:text-red-400 hover:bg-slate-800 rounded-lg transition-colors cursor-pointer"
+                title="Sign Out of Admin Portal"
+              >
+                <LogOut className="w-4 h-4" />
+              </button>
+            )}
+          </div>
         </div>
       </div>
     </header>
