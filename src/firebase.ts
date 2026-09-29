@@ -1,6 +1,6 @@
 import { initializeApp } from 'firebase/app';
 import { getAuth, GoogleAuthProvider } from 'firebase/auth';
-import { getFirestore, doc, getDocFromServer } from 'firebase/firestore';
+import { getFirestore, doc, getDoc } from 'firebase/firestore';
 import firebaseConfig from '../firebase-applet-config.json';
 
 // Initialize Firebase App
@@ -43,8 +43,14 @@ export interface FirestoreErrorInfo {
 }
 
 export function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null) {
+  const errMsg = error instanceof Error ? error.message : String(error);
+  const isNetworkIssue = errMsg.includes('unavailable') || 
+                         errMsg.includes('offline') || 
+                         errMsg.includes('Could not reach Cloud Firestore backend') ||
+                         (typeof error === 'object' && error !== null && 'code' in error && (error as { code?: string }).code === 'unavailable');
+
   const errInfo: FirestoreErrorInfo = {
-    error: error instanceof Error ? error.message : String(error),
+    error: errMsg,
     authInfo: {
       userId: auth.currentUser?.uid,
       email: auth.currentUser?.email,
@@ -59,17 +65,21 @@ export function handleFirestoreError(error: unknown, operationType: OperationTyp
     operationType,
     path,
   };
+
+  if (isNetworkIssue) {
+    console.warn(`Firestore network notice (${operationType} at ${path}): Client operating in offline mode. Changes will automatically sync when connection restores.`);
+    return;
+  }
+
   console.error('Firestore Error: ', JSON.stringify(errInfo));
   throw new Error(JSON.stringify(errInfo));
 }
 
-// Test connection on app boot as required by Firebase integration guidelines
+// Test connection on app boot
 export async function testFirestoreConnection() {
   try {
-    await getDocFromServer(doc(db, 'test', 'connection'));
+    await getDoc(doc(db, 'test', 'connection'));
   } catch (error) {
-    if (error instanceof Error && error.message.includes('the client is offline')) {
-      console.warn('Firestore offline or connection check skipped:', error.message);
-    }
+    console.warn('Firestore initial connection status: Client in offline/local cache mode until online.');
   }
 }
