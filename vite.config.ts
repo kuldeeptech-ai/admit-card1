@@ -9,7 +9,7 @@ const __dirname = path.dirname(__filename);
 
 export default defineConfig(() => {
   return {
-    root: '.',
+    root: __dirname,
     base: '/',
     plugins: [react(), tailwindcss()],
     resolve: {
