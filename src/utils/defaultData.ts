@@ -45,24 +45,17 @@ export const INITIAL_SCHOOL_SETTINGS: SchoolSettings = {
   academicSession: '2026–27',
 };
 
-export const INITIAL_CLASSES: ClassItem[] = [
-  { id: 'cls-1', name: 'Class 1', section: 'A', classTeacher: 'Sunita Mishra', roomNo: 'Room 101' },
-  { id: 'cls-2', name: 'Class 2', section: 'A', classTeacher: 'Pooja Tiwari', roomNo: 'Room 102' },
-  { id: 'cls-3', name: 'Class 3', section: 'A', classTeacher: 'Rameshwar Singh', roomNo: 'Room 103' },
-  { id: 'cls-4', name: 'Class 4', section: 'A', classTeacher: 'Anuradha Pandey', roomNo: 'Room 104' },
-  { id: 'cls-5', name: 'Class 5', section: 'A', classTeacher: 'Kavita Verma', roomNo: 'Room 105' },
-  { id: 'cls-6', name: 'Class 6', section: 'A', classTeacher: 'Sanjay Kumar', roomNo: 'Room 201' },
-  { id: 'cls-7', name: 'Class 7', section: 'A', classTeacher: 'Vikas Dubey', roomNo: 'Room 202' },
-  { id: 'cls-8', name: 'Class 8', section: 'A', classTeacher: 'Deepak Sharma', roomNo: 'Room 203' },
-];
+import { OFFICIAL_FULL_TIMETABLE, OFFICIAL_CLASSES } from './timetableData';
+
+export const INITIAL_CLASSES: ClassItem[] = OFFICIAL_CLASSES;
 
 export const INITIAL_EXAMINATIONS: Examination[] = [
   {
     id: 'exam-annual-2026',
     name: 'Annual Examination 2026–27',
     academicSession: '2026–27',
-    startDate: '2026-10-12',
-    endDate: '2026-10-24',
+    startDate: '2026-10-05',
+    endDate: '2026-10-15',
     reportingTime: '08:30 AM',
     examStartTime: '09:00 AM',
     examEndTime: '12:00 PM',
@@ -85,20 +78,8 @@ export const INITIAL_EXAMINATIONS: Examination[] = [
   },
 ];
 
-// Complete 11 subjects timetable (English names)
-export const INITIAL_DATE_SHEET: DateSheetItem[] = [
-  { id: 'ds-1', examId: 'exam-annual-2026', date: '12-10-2026', day: 'Monday', subject: 'Hindi', time: '09:00 AM – 12:00 PM', order: 1 },
-  { id: 'ds-2', examId: 'exam-annual-2026', date: '13-10-2026', day: 'Tuesday', subject: 'English', time: '09:00 AM – 12:00 PM', order: 2 },
-  { id: 'ds-3', examId: 'exam-annual-2026', date: '14-10-2026', day: 'Wednesday', subject: 'Mathematics', time: '09:00 AM – 12:00 PM', order: 3 },
-  { id: 'ds-4', examId: 'exam-annual-2026', date: '15-10-2026', day: 'Thursday', subject: 'Science', time: '09:00 AM – 12:00 PM', order: 4 },
-  { id: 'ds-5', examId: 'exam-annual-2026', date: '16-10-2026', day: 'Friday', subject: 'Social Science', time: '09:00 AM – 12:00 PM', order: 5 },
-  { id: 'ds-6', examId: 'exam-annual-2026', date: '17-10-2026', day: 'Saturday', subject: 'Sanskrit', time: '09:00 AM – 12:00 PM', order: 6 },
-  { id: 'ds-7', examId: 'exam-annual-2026', date: '19-10-2026', day: 'Monday', subject: 'Computer Science', time: '09:00 AM – 12:00 PM', order: 7 },
-  { id: 'ds-8', examId: 'exam-annual-2026', date: '20-10-2026', day: 'Tuesday', subject: 'General Knowledge', time: '09:00 AM – 12:00 PM', order: 8 },
-  { id: 'ds-9', examId: 'exam-annual-2026', date: '21-10-2026', day: 'Wednesday', subject: 'Art & Drawing', time: '09:00 AM – 12:00 PM', order: 9 },
-  { id: 'ds-10', examId: 'exam-annual-2026', date: '22-10-2026', day: 'Thursday', subject: 'Moral Science', time: '09:00 AM – 12:00 PM', order: 10 },
-  { id: 'ds-11', examId: 'exam-annual-2026', date: '24-10-2026', day: 'Saturday', subject: 'Physical Education', time: '09:00 AM – 12:00 PM', order: 11 },
-];
+// Complete official class-wise timetable (From Official School Schedule)
+export const INITIAL_DATE_SHEET: DateSheetItem[] = OFFICIAL_FULL_TIMETABLE;
 
 export const INITIAL_INSTRUCTIONS: InstructionItem[] = [
   { id: 'ins-1', text: 'Candidate must bring this Admit Card daily to the examination hall. Entry without Admit Card is strictly prohibited.', isActive: true, order: 1 },

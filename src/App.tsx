@@ -17,7 +17,7 @@ import { StorageService } from './utils/storage';
 import { Navbar } from './components/Navbar';
 import { Sidebar, TabKey } from './components/Sidebar';
 import { Dashboard } from './components/Dashboard';
-import { StudentManager, findDuplicateStudent, normalizeClassName } from './components/StudentManager';
+import { StudentManager, findDuplicateStudent, normalizeClassName, sortStudentsByRollNumber } from './components/StudentManager';
 import { ClassManager } from './components/ClassManager';
 import { ExamManager } from './components/ExamManager';
 import { Designer } from './components/Designer';
@@ -28,7 +28,7 @@ import { PrintPreviewView } from './components/PrintPreviewView';
 import { ImportExportView } from './components/ImportExportView';
 import { SystemSettingsModal } from './components/SystemSettingsModal';
 import { AdminLoginModal } from './components/AdminLoginModal';
-import { testFirestoreConnection } from './firebase';
+import { INITIAL_DATE_SHEET } from './utils/defaultData';
 import {
   subscribeToAuth,
   logoutUser,
@@ -41,6 +41,15 @@ import {
   fetchClassesFromFirestore,
   saveClassToFirestore,
   deleteClassFromFirestore,
+  fetchAppSettingsFromFirestore,
+  saveAppSettingsToFirestore,
+  fetchExamsFromFirestore,
+  saveExamToFirestore,
+  deleteExamFromFirestore,
+  fetchDateSheetsFromFirestore,
+  saveDateSheetsToFirestore,
+  fetchInstructionsFromFirestore,
+  saveInstructionsToFirestore,
 } from './utils/firebaseSync';
 
 export default function App() {
@@ -50,8 +59,10 @@ export default function App() {
   const [isSystemModalOpen, setIsSystemModalOpen] = useState(false);
   const [selectedClassFilter, setSelectedClassFilter] = useState<string>('all');
 
-  // Core Application State (loaded from StorageService)
-  const [students, setStudents] = useState<Student[]>(() => StorageService.getStudents());
+  // Core Application State (strictly sorted serially by Roll Number 1, 2, 3...)
+  const [students, setStudents] = useState<Student[]>(() =>
+    sortStudentsByRollNumber(StorageService.getStudents())
+  );
   const [classes, setClasses] = useState<ClassItem[]>(() => StorageService.getClasses());
   const [examinations, setExaminations] = useState<Examination[]>(() =>
     StorageService.getExaminations()
@@ -93,8 +104,6 @@ export default function App() {
 
   // Firebase Auth & Firestore Sync Lifecycle
   useEffect(() => {
-    testFirestoreConnection();
-
     // 1. Initial Firestore Sync immediately on mount
     const syncInitialData = async (uid?: string) => {
       setCloudSyncStatus('syncing');
@@ -102,8 +111,9 @@ export default function App() {
         // A. Sync Students with Firestore
         const fsStudents = await fetchStudentsFromFirestore(uid);
         if (fsStudents && fsStudents.length > 0) {
-          setStudents(fsStudents);
-          StorageService.setStudents(fsStudents);
+          const sorted = sortStudentsByRollNumber(fsStudents);
+          setStudents(sorted);
+          StorageService.setStudents(sorted);
         } else {
           const localStudents = StorageService.getStudents();
           if (localStudents.length > 0) {
@@ -132,7 +142,7 @@ export default function App() {
           }
         }
 
-        // C. Sync School Settings with Firestore
+        // C. Sync School Settings with Firestore (Logo, Stamp, Signs, School Name)
         const fsSchool = await fetchSchoolSettingsFromFirestore(uid || 'school-admin');
         if (fsSchool) {
           setSchool(fsSchool);
@@ -140,6 +150,82 @@ export default function App() {
         } else {
           const localSchool = StorageService.getSchoolSettings();
           await saveSchoolSettingsToFirestore(uid || 'school-admin', localSchool);
+        }
+
+        // D. Sync Global App & Design Settings (Colors, Fonts, Visibilities, Sections, Print Settings)
+        const fsAppSettings = await fetchAppSettingsFromFirestore();
+        if (fsAppSettings) {
+          if (fsAppSettings.design) {
+            setDesign(fsAppSettings.design);
+            StorageService.setDesignSettings(fsAppSettings.design);
+          }
+          if (fsAppSettings.visibility) {
+            setVisibility(fsAppSettings.visibility);
+            StorageService.setFieldVisibility(fsAppSettings.visibility);
+          }
+          if (fsAppSettings.sections) {
+            setSections(fsAppSettings.sections);
+            StorageService.setSections(fsAppSettings.sections);
+          }
+          if (fsAppSettings.printSettings) {
+            setPrintSettings(fsAppSettings.printSettings);
+            StorageService.setPrintSettings(fsAppSettings.printSettings);
+          }
+          if (fsAppSettings.customFields) {
+            setCustomFields(fsAppSettings.customFields);
+            StorageService.setCustomFields(fsAppSettings.customFields);
+          }
+          if (fsAppSettings.activeExamId) {
+            setActiveExamId(fsAppSettings.activeExamId);
+            StorageService.setActiveExamId(fsAppSettings.activeExamId);
+          }
+        } else {
+          await saveAppSettingsToFirestore({
+            design: StorageService.getDesignSettings(),
+            visibility: StorageService.getFieldVisibility(),
+            sections: StorageService.getSections(),
+            printSettings: StorageService.getPrintSettings(),
+            customFields: StorageService.getCustomFields(),
+            activeExamId: StorageService.getActiveExamId(),
+          });
+        }
+
+        // E. Sync Examinations with Firestore
+        const fsExams = await fetchExamsFromFirestore();
+        if (fsExams && fsExams.length > 0) {
+          setExaminations(fsExams);
+          StorageService.setExaminations(fsExams);
+        } else {
+          const localExams = StorageService.getExaminations();
+          for (const exam of localExams) {
+            await saveExamToFirestore(exam);
+          }
+        }
+
+        // F. Sync DateSheets (Timetable) with Firestore
+        const fsDateSheets = await fetchDateSheetsFromFirestore();
+        if (fsDateSheets && fsDateSheets.length >= 20) {
+          setDateSheet(fsDateSheets);
+          StorageService.setDateSheet(fsDateSheets);
+        } else {
+          // Initialize with official full class-wise timetable (76 entries from uploaded date sheet)
+          const localDs = StorageService.getDateSheet();
+          const itemsToSave = localDs.length >= 20 ? localDs : INITIAL_DATE_SHEET;
+          setDateSheet(itemsToSave);
+          StorageService.setDateSheet(itemsToSave);
+          await saveDateSheetsToFirestore(itemsToSave);
+        }
+
+        // G. Sync Instructions with Firestore
+        const fsInstructions = await fetchInstructionsFromFirestore();
+        if (fsInstructions && fsInstructions.length > 0) {
+          setInstructions(fsInstructions);
+          StorageService.setInstructions(fsInstructions);
+        } else {
+          const localInst = StorageService.getInstructions();
+          if (localInst.length > 0) {
+            await saveInstructionsToFirestore(localInst);
+          }
         }
 
         setCloudSyncStatus('synced');
@@ -177,7 +263,7 @@ export default function App() {
   const currentExam =
     examinations.find((e) => e.id === activeExamId) || examinations[0];
 
-  // Handlers for Students (Always synced to Firestore database)
+  // Handlers for Students (Always synced to Firestore database & sorted serially 1, 2, 3...)
   const handleSaveStudent = (student: Student) => {
     const normalizedClass = normalizeClassName(student.className) || student.className;
     const cleanStudent: Student = {
@@ -186,26 +272,32 @@ export default function App() {
     };
 
     const isNew = !students.some((s) => s.id === cleanStudent.id);
+    let targetId = cleanStudent.id;
     if (isNew) {
       const duplicate = findDuplicateStudent(cleanStudent, students);
       if (duplicate) {
-        alert(
-          `Cannot add duplicate student: A student named "${duplicate.name}" with Roll No "${duplicate.rollNumber}" already exists in ${duplicate.className}.`
-        );
-        return;
+        // Replace existing duplicate student's record with the new one
+        targetId = duplicate.id;
       }
     }
 
-    const exists = students.some((s) => s.id === cleanStudent.id);
+    const finalStudent: Student = {
+      ...cleanStudent,
+      id: targetId,
+    };
+
+    const exists = students.some((s) => s.id === targetId);
     const updated = exists
-      ? students.map((s) => (s.id === cleanStudent.id ? cleanStudent : s))
-      : [cleanStudent, ...students];
-    setStudents(updated);
-    StorageService.setStudents(updated);
+      ? students.map((s) => (s.id === targetId ? finalStudent : s))
+      : [finalStudent, ...students];
+
+    const sortedUpdated = sortStudentsByRollNumber(updated);
+    setStudents(sortedUpdated);
+    StorageService.setStudents(sortedUpdated);
 
     // Save student to Firestore database
     setCloudSyncStatus('syncing');
-    saveStudentToFirestore(currentUser?.uid, cleanStudent)
+    saveStudentToFirestore(currentUser?.uid, finalStudent)
       .then(() => setCloudSyncStatus('synced'))
       .catch((err) => {
         console.error('Save to Firestore failed:', err);
@@ -213,37 +305,142 @@ export default function App() {
       });
   };
 
-  const handleBulkAddStudents = (newStudents: Student[]) => {
+  const handleBulkAddStudents = (
+    newStudents: Student[],
+    importMode: 'update' | 'skip' | 'replace_class' = 'update',
+    targetClassName?: string
+  ) => {
     const cleanStudents = newStudents.map((ns) => ({
       ...ns,
       className: normalizeClassName(ns.className) || ns.className,
     }));
 
-    const uniqueStudents: Student[] = [];
-    cleanStudents.forEach((ns) => {
-      const isDup = findDuplicateStudent(ns, [...students, ...uniqueStudents]);
-      if (!isDup) {
-        uniqueStudents.push(ns);
-      }
-    });
+    let updatedList: Student[] = [];
+    const studentsToSaveToFirestore: Student[] = [];
 
-    if (uniqueStudents.length === 0) {
-      alert('All provided students already exist in the database. No duplicate students were added.');
-      return;
+    if (importMode === 'replace_class') {
+      const affectedClassSet = new Set<string>();
+      cleanStudents.forEach((ns) => affectedClassSet.add(normalizeClassName(ns.className)));
+      if (targetClassName) affectedClassSet.add(normalizeClassName(targetClassName));
+
+      // Remove previous students from the affected classes
+      const removedStudents = students.filter((s) => affectedClassSet.has(normalizeClassName(s.className)));
+      const retainedStudents = students.filter((s) => !affectedClassSet.has(normalizeClassName(s.className)));
+
+      // Delete removed students from Firestore
+      removedStudents.forEach((s) => {
+        deleteStudentFromFirestore(currentUser?.uid, s.id).catch(() => {});
+      });
+
+      updatedList = [...cleanStudents, ...retainedStudents];
+      studentsToSaveToFirestore.push(...cleanStudents);
+    } else if (importMode === 'update') {
+      // Update/Replace existing matching students, or insert if new
+      const currentMap = new Map<string, Student>();
+      students.forEach((s) => currentMap.set(s.id, s));
+
+      cleanStudents.forEach((incoming) => {
+        const dup = findDuplicateStudent(incoming, Array.from(currentMap.values()));
+        if (dup) {
+          // Update & replace existing student record
+          const merged: Student = {
+            ...incoming,
+            id: dup.id, // keep original ID
+            photoUrl: incoming.photoUrl || dup.photoUrl,
+            admitCardNumber: incoming.admitCardNumber || dup.admitCardNumber,
+          };
+          currentMap.set(dup.id, merged);
+          studentsToSaveToFirestore.push(merged);
+        } else {
+          // Add as new student
+          currentMap.set(incoming.id, incoming);
+          studentsToSaveToFirestore.push(incoming);
+        }
+      });
+
+      updatedList = Array.from(currentMap.values());
+    } else {
+      // Skip Mode: Only add non-duplicates
+      const nonDuplicates: Student[] = [];
+      cleanStudents.forEach((ns) => {
+        const isDup = findDuplicateStudent(ns, [...students, ...nonDuplicates]);
+        if (!isDup) {
+          nonDuplicates.push(ns);
+        }
+      });
+      updatedList = [...nonDuplicates, ...students];
+      studentsToSaveToFirestore.push(...nonDuplicates);
     }
 
-    const updated = [...uniqueStudents, ...students];
-    setStudents(updated);
-    StorageService.setStudents(updated);
+    const sortedList = sortStudentsByRollNumber(updatedList);
+    setStudents(sortedList);
+    StorageService.setStudents(sortedList);
 
     // Save batch to Firestore database
-    setCloudSyncStatus('syncing');
-    syncBatchStudentsToFirestore(currentUser?.uid, uniqueStudents)
-      .then(() => setCloudSyncStatus('synced'))
-      .catch((err) => {
-        console.error('Batch save to Firestore failed:', err);
-        setCloudSyncStatus('offline');
+    if (studentsToSaveToFirestore.length > 0) {
+      setCloudSyncStatus('syncing');
+      syncBatchStudentsToFirestore(currentUser?.uid, studentsToSaveToFirestore)
+        .then(() => setCloudSyncStatus('synced'))
+        .catch((err) => {
+          console.error('Batch save to Firestore failed:', err);
+          setCloudSyncStatus('offline');
+        });
+    }
+  };
+
+  // Re-sequence and assign clean Serial Roll Numbers (1, 2, 3...)
+  const handleResequenceRollNumbers = (targetClassName: string) => {
+    const prefix = school.admitCardNumberPrefix || 'HDP/2026/';
+    const affectedClasses =
+      targetClassName === 'all'
+        ? Array.from(new Set(students.map((s) => normalizeClassName(s.className))))
+        : [normalizeClassName(targetClassName)];
+
+    const updatedStudents = [...students];
+    const modifiedList: Student[] = [];
+
+    affectedClasses.forEach((cls) => {
+      const classStudents = updatedStudents
+        .filter((s) => normalizeClassName(s.className) === cls)
+        .sort((a, b) => {
+          const numA = parseInt(a.rollNumber.replace(/[^0-9]/g, '') || '0', 10);
+          const numB = parseInt(b.rollNumber.replace(/[^0-9]/g, '') || '0', 10);
+          if (numA > 0 && numB > 0 && numA !== numB) return numA - numB;
+          return a.name.localeCompare(b.name);
+        });
+
+      classStudents.forEach((st, idx) => {
+        const newRoll = String(idx + 1);
+        const classNum = cls.replace(/[^0-9]/g, '') || '1';
+        const formattedRoll = String(idx + 1).padStart(2, '0');
+        const newCardNo = st.admitCardNumber
+          ? `${prefix}${classNum.padStart(2, '0')}${formattedRoll}`
+          : st.admitCardNumber;
+
+        const updatedSt: Student = {
+          ...st,
+          rollNumber: newRoll,
+          admitCardNumber: newCardNo,
+        };
+
+        const globalIdx = updatedStudents.findIndex((s) => s.id === st.id);
+        if (globalIdx !== -1) {
+          updatedStudents[globalIdx] = updatedSt;
+        }
+        modifiedList.push(updatedSt);
       });
+    });
+
+    const sorted = sortStudentsByRollNumber(updatedStudents);
+    setStudents(sorted);
+    StorageService.setStudents(sorted);
+
+    if (modifiedList.length > 0) {
+      setCloudSyncStatus('syncing');
+      syncBatchStudentsToFirestore(currentUser?.uid, modifiedList)
+        .then(() => setCloudSyncStatus('synced'))
+        .catch(() => setCloudSyncStatus('offline'));
+    }
   };
 
   const handleDeleteStudent = (id: string) => {
@@ -350,6 +547,7 @@ export default function App() {
       : [...examinations, exam];
     setExaminations(updated);
     StorageService.setExaminations(updated);
+    saveExamToFirestore(exam).catch(() => {});
   };
 
   const handleDeleteExam = (id: string) => {
@@ -359,7 +557,9 @@ export default function App() {
     if (activeExamId === id && updated.length > 0) {
       setActiveExamId(updated[0].id);
       StorageService.setActiveExamId(updated[0].id);
+      saveAppSettingsToFirestore({ activeExamId: updated[0].id }).catch(() => {});
     }
+    deleteExamFromFirestore(id).catch(() => {});
   };
 
   const handleDuplicateExam = (exam: Examination) => {
@@ -372,27 +572,32 @@ export default function App() {
     const updated = [...examinations, duplicated];
     setExaminations(updated);
     StorageService.setExaminations(updated);
+    saveExamToFirestore(duplicated).catch(() => {});
   };
 
   const handleSetActiveExam = (id: string) => {
     setActiveExamId(id);
     StorageService.setActiveExamId(id);
+    saveAppSettingsToFirestore({ activeExamId: id }).catch(() => {});
   };
 
-  // Handlers for Designer & Settings
+  // Handlers for Designer & Settings (Synced to Cloud Firestore)
   const handleUpdateDesign = (newDesign: DesignSettings) => {
     setDesign(newDesign);
     StorageService.setDesignSettings(newDesign);
+    saveAppSettingsToFirestore({ design: newDesign }).catch(() => {});
   };
 
   const handleUpdateVisibility = (newVisibility: FieldVisibility) => {
     setVisibility(newVisibility);
     StorageService.setFieldVisibility(newVisibility);
+    saveAppSettingsToFirestore({ visibility: newVisibility }).catch(() => {});
   };
 
   const handleUpdateSections = (newSections: SectionConfig[]) => {
     setSections(newSections);
     StorageService.setSections(newSections);
+    saveAppSettingsToFirestore({ sections: newSections }).catch(() => {});
   };
 
   const handleSaveTemplate = (currentDesign: DesignSettings, isNew?: boolean) => {
@@ -424,12 +629,10 @@ export default function App() {
     setSchool(newSchool);
     StorageService.setSchoolSettings(newSchool);
 
-    if (currentUser?.uid) {
-      setCloudSyncStatus('syncing');
-      saveSchoolSettingsToFirestore(currentUser.uid, newSchool)
-        .then(() => setCloudSyncStatus('synced'))
-        .catch(() => setCloudSyncStatus('offline'));
-    }
+    setCloudSyncStatus('syncing');
+    saveSchoolSettingsToFirestore(currentUser?.uid, newSchool)
+      .then(() => setCloudSyncStatus('synced'))
+      .catch(() => setCloudSyncStatus('offline'));
   };
 
   const handleLogout = async () => {
@@ -459,16 +662,25 @@ export default function App() {
   const handleSaveDateSheet = (newDateSheet: DateSheetItem[]) => {
     setDateSheet(newDateSheet);
     StorageService.setDateSheet(newDateSheet);
+    setCloudSyncStatus('syncing');
+    saveDateSheetsToFirestore(newDateSheet)
+      .then(() => setCloudSyncStatus('synced'))
+      .catch((err) => {
+        console.error('Failed to sync timetable:', err);
+        setCloudSyncStatus('offline');
+      });
   };
 
   const handleSaveInstructions = (newInstructions: InstructionItem[]) => {
     setInstructions(newInstructions);
     StorageService.setInstructions(newInstructions);
+    saveInstructionsToFirestore(newInstructions).catch(() => {});
   };
 
   const handleUpdatePrintSettings = (newPs: PrintSettings) => {
     setPrintSettings(newPs);
     StorageService.setPrintSettings(newPs);
+    saveAppSettingsToFirestore({ printSettings: newPs }).catch(() => {});
   };
 
   const handleSaveSession = (session: UserSession) => {
@@ -598,6 +810,7 @@ export default function App() {
               selectedClassFilter={selectedClassFilter}
               onSaveStudent={handleSaveStudent}
               onBulkAddStudents={handleBulkAddStudents}
+              onResequenceRollNumbers={handleResequenceRollNumbers}
               onDeleteStudent={handleDeleteStudent}
               onDeleteMultiple={handleDeleteMultipleStudents}
               onGenerateAdmitCards={handleGenerateAdmitCards}

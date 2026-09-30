@@ -15,7 +15,7 @@ import {
 import { INITIAL_DATE_SHEET } from '../utils/defaultData';
 import { A4PrintSheet } from './A4PrintSheet';
 import { downloadAdmitCardsPdf, triggerPrintSheet } from '../utils/pdfExport';
-import { normalizeClassName } from './StudentManager';
+import { normalizeClassName, sortStudentsByRollNumber } from './StudentManager';
 import {
   Printer,
   Download,
@@ -124,6 +124,8 @@ export const PrintPreviewView: React.FC<PrintPreviewViewProps> = ({
   } else {
     activeStudents = students;
   }
+  // Strictly sort candidates serially by Roll Number (1, 2, 3...)
+  activeStudents = sortStudentsByRollNumber(activeStudents);
 
   // Pre-print audit stats
   const isLandscape = printSettings.layout === 'landscape_2' || printSettings.orientation === 'landscape';

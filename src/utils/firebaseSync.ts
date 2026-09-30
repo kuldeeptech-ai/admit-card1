@@ -20,7 +20,19 @@ import {
   writeBatch,
 } from 'firebase/firestore';
 import { auth, db, googleProvider, handleFirestoreError, OperationType } from '../firebase';
-import { Student, SchoolSettings, Examination, DateSheetItem, InstructionItem, ClassItem } from '../types';
+import {
+  Student,
+  SchoolSettings,
+  Examination,
+  DateSheetItem,
+  InstructionItem,
+  ClassItem,
+  DesignSettings,
+  FieldVisibility,
+  SectionConfig,
+  PrintSettings,
+  CustomField,
+} from '../types';
 import { sanitizeSchoolSettingsForFirestore, compressImage } from './imageCompressor';
 
 // ==========================================
@@ -276,16 +288,66 @@ export async function deleteClassFromFirestore(classId: string): Promise<void> {
 }
 
 // ==========================================
-// Firestore School Settings Operations
+// Firestore School Settings Operations (Multi-Device Synced)
 // ==========================================
 
-export async function fetchSchoolSettingsFromFirestore(userId: string): Promise<SchoolSettings | null> {
-  const path = `schools/${userId}`;
+export async function fetchSchoolSettingsFromFirestore(userId?: string): Promise<SchoolSettings | null> {
+  const primaryDocId = 'main_school_profile';
   try {
-    const ref = doc(db, 'schools', userId);
-    const snapshot = await getDoc(ref);
+    let snapshot = await getDoc(doc(db, 'schools', primaryDocId));
+    if (!snapshot.exists() && userId) {
+      snapshot = await getDoc(doc(db, 'schools', userId));
+    }
     if (snapshot.exists()) {
       return snapshot.data() as SchoolSettings;
+    }
+    return null;
+  } catch (error) {
+    handleFirestoreError(error, OperationType.GET, 'schools');
+    return null;
+  }
+}
+
+export async function saveSchoolSettingsToFirestore(userId: string | undefined, school: SchoolSettings): Promise<void> {
+  const primaryDocId = 'main_school_profile';
+  try {
+    // Sanitize and compress all images (logo, signatures, stamp) so total document size is < 250 KB
+    const safeSchool = await sanitizeSchoolSettingsForFirestore(school);
+    const dataToSave = {
+      ...safeSchool,
+      userId: userId || 'school-admin',
+      updatedAt: new Date().toISOString(),
+    };
+    await setDoc(doc(db, 'schools', primaryDocId), dataToSave);
+    if (userId) {
+      await setDoc(doc(db, 'schools', userId), dataToSave);
+    }
+  } catch (error) {
+    handleFirestoreError(error, OperationType.WRITE, `schools/${primaryDocId}`);
+  }
+}
+
+// ==========================================
+// App & Design Settings (Multi-Device Synced)
+// ==========================================
+
+export interface AppGlobalSettings {
+  design?: DesignSettings;
+  visibility?: FieldVisibility;
+  sections?: SectionConfig[];
+  printSettings?: PrintSettings;
+  customFields?: CustomField[];
+  activeExamId?: string;
+  updatedAt?: string;
+}
+
+export async function fetchAppSettingsFromFirestore(): Promise<AppGlobalSettings | null> {
+  const path = 'app_settings/global_config';
+  try {
+    const ref = doc(db, 'app_settings', 'global_config');
+    const snapshot = await getDoc(ref);
+    if (snapshot.exists()) {
+      return snapshot.data() as AppGlobalSettings;
     }
     return null;
   } catch (error) {
@@ -294,17 +356,18 @@ export async function fetchSchoolSettingsFromFirestore(userId: string): Promise<
   }
 }
 
-export async function saveSchoolSettingsToFirestore(userId: string, school: SchoolSettings): Promise<void> {
-  const path = `schools/${userId}`;
+export async function saveAppSettingsToFirestore(settings: Partial<AppGlobalSettings>): Promise<void> {
+  const path = 'app_settings/global_config';
   try {
-    // Sanitize and compress all images (logo, signatures, stamp) so total document size is < 250 KB
-    const safeSchool = await sanitizeSchoolSettingsForFirestore(school);
-    const ref = doc(db, 'schools', userId);
-    await setDoc(ref, {
-      ...safeSchool,
-      userId,
-      updatedAt: new Date().toISOString(),
-    });
+    const ref = doc(db, 'app_settings', 'global_config');
+    await setDoc(
+      ref,
+      {
+        ...settings,
+        updatedAt: new Date().toISOString(),
+      },
+      { merge: true }
+    );
   } catch (error) {
     handleFirestoreError(error, OperationType.WRITE, path);
   }
@@ -314,11 +377,10 @@ export async function saveSchoolSettingsToFirestore(userId: string, school: Scho
 // Firestore Examinations Operations
 // ==========================================
 
-export async function fetchExamsFromFirestore(userId: string): Promise<Examination[]> {
+export async function fetchExamsFromFirestore(): Promise<Examination[]> {
   const path = 'exams';
   try {
-    const q = query(collection(db, path), where('userId', '==', userId));
-    const snapshot = await getDocs(q);
+    const snapshot = await getDocs(collection(db, path));
     const exams: Examination[] = [];
     snapshot.forEach((d) => {
       exams.push({ id: d.id, ...(d.data() as any) });
@@ -330,15 +392,165 @@ export async function fetchExamsFromFirestore(userId: string): Promise<Examinati
   }
 }
 
-export async function saveExamToFirestore(userId: string, exam: Examination): Promise<void> {
+export async function saveExamToFirestore(exam: Examination): Promise<void> {
   const path = `exams/${exam.id}`;
   try {
     const ref = doc(db, 'exams', exam.id);
     await setDoc(ref, {
       ...exam,
-      userId,
       updatedAt: new Date().toISOString(),
     });
+  } catch (error) {
+    handleFirestoreError(error, OperationType.WRITE, path);
+  }
+}
+
+export async function deleteExamFromFirestore(examId: string): Promise<void> {
+  const path = `exams/${examId}`;
+  try {
+    const ref = doc(db, 'exams', examId);
+    await deleteDoc(ref);
+  } catch (error) {
+    handleFirestoreError(error, OperationType.DELETE, path);
+  }
+}
+
+// ==========================================
+// Firestore DateSheets (Timetable) Operations
+// ==========================================
+
+export async function fetchDateSheetsFromFirestore(): Promise<DateSheetItem[]> {
+  const path = 'dateSheets';
+  try {
+    // 1. Try master timetable document in app_settings first
+    const masterDoc = await getDoc(doc(db, 'app_settings', 'timetable'));
+    if (masterDoc.exists() && Array.isArray(masterDoc.data()?.items) && masterDoc.data().items.length > 0) {
+      return masterDoc.data().items as DateSheetItem[];
+    }
+
+    // 2. Fallback to individual collection items
+    const snapshot = await getDocs(collection(db, path));
+    const items: DateSheetItem[] = [];
+    snapshot.forEach((d) => {
+      const data = d.data();
+      items.push({
+        id: d.id,
+        examId: data.examId || '',
+        className: data.className || '',
+        date: data.date || '',
+        day: data.day || '',
+        subject: data.subject || '',
+        time: data.time || '09:00 AM – 12:00 PM',
+        room: data.room || '',
+        code: data.code || '',
+        order: Number(data.order) || 1,
+      });
+    });
+    return items;
+  } catch (error) {
+    handleFirestoreError(error, OperationType.GET, path);
+    return [];
+  }
+}
+
+export async function saveDateSheetsToFirestore(items: DateSheetItem[]): Promise<void> {
+  const path = 'dateSheets';
+  try {
+    // Sanitize all items to ensure NO undefined value crashes Firestore setDoc
+    const cleanItems: DateSheetItem[] = items.map((item, idx) => ({
+      id: item.id || `ds-${Date.now()}-${idx + 1}`,
+      examId: item.examId || '',
+      className: item.className ? item.className.trim() : '',
+      date: item.date || '',
+      day: item.day || '',
+      subject: item.subject || '',
+      time: item.time || '09:00 AM – 12:00 PM',
+      room: item.room || '',
+      code: item.code || '',
+      order: Number(item.order) || idx + 1,
+    }));
+
+    // 1. Save master unified timetable document (atomic, instant, zero orphaned items)
+    await setDoc(doc(db, 'app_settings', 'timetable'), {
+      items: cleanItems,
+      totalCount: cleanItems.length,
+      updatedAt: new Date().toISOString(),
+    });
+
+    // 2. Also write individual documents in batches of 300 for collection compatibility
+    for (let i = 0; i < cleanItems.length; i += 300) {
+      const chunk = cleanItems.slice(i, i + 300);
+      const batch = writeBatch(db);
+      for (const item of chunk) {
+        const ref = doc(db, 'dateSheets', item.id);
+        batch.set(ref, {
+          ...item,
+          updatedAt: new Date().toISOString(),
+        });
+      }
+      await batch.commit();
+    }
+  } catch (error) {
+    handleFirestoreError(error, OperationType.WRITE, path);
+  }
+}
+
+// ==========================================
+// Firestore Instructions Operations
+// ==========================================
+
+export async function fetchInstructionsFromFirestore(): Promise<InstructionItem[]> {
+  const path = 'instructions';
+  try {
+    // 1. Try master instructions document first
+    const masterDoc = await getDoc(doc(db, 'app_settings', 'instructions_list'));
+    if (masterDoc.exists() && Array.isArray(masterDoc.data()?.items) && masterDoc.data().items.length > 0) {
+      return masterDoc.data().items as InstructionItem[];
+    }
+
+    const snapshot = await getDocs(collection(db, path));
+    const items: InstructionItem[] = [];
+    snapshot.forEach((d) => {
+      const data = d.data();
+      items.push({
+        id: d.id,
+        text: data.text || '',
+        isActive: data.isActive !== false,
+        order: Number(data.order) || 1,
+      });
+    });
+    return items;
+  } catch (error) {
+    handleFirestoreError(error, OperationType.GET, path);
+    return [];
+  }
+}
+
+export async function saveInstructionsToFirestore(items: InstructionItem[]): Promise<void> {
+  const path = 'instructions';
+  try {
+    const cleanItems: InstructionItem[] = items.map((item, idx) => ({
+      id: item.id || `ins-${Date.now()}-${idx + 1}`,
+      text: item.text || '',
+      isActive: item.isActive !== false,
+      order: Number(item.order) || idx + 1,
+    }));
+
+    // 1. Save master unified instructions document
+    await setDoc(doc(db, 'app_settings', 'instructions_list'), {
+      items: cleanItems,
+      updatedAt: new Date().toISOString(),
+    });
+
+    const batch = writeBatch(db);
+    for (const item of cleanItems) {
+      const ref = doc(db, 'instructions', item.id);
+      batch.set(ref, {
+        ...item,
+        updatedAt: new Date().toISOString(),
+      });
+    }
+    await batch.commit();
   } catch (error) {
     handleFirestoreError(error, OperationType.WRITE, path);
   }

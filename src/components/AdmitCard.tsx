@@ -11,6 +11,7 @@ import {
   DesignSettings,
 } from '../types';
 import { generateQrDataUrl } from '../utils/qr';
+import { normalizeClassName } from './StudentManager';
 
 interface AdmitCardProps {
   student: Student;
@@ -113,17 +114,27 @@ export const AdmitCard: React.FC<AdmitCardProps> = ({
     };
   }, [visibility.qrCode, student, school, exam, design.qrSize]);
 
-  // Active instructions and date sheet (support class-specific or common)
+  // Active instructions and date sheet (strictly match student's class or common subjects)
   const activeInstructions = instructions.filter((i) => i.isActive).sort((a, b) => a.order - b.order);
+  const studentNormClass = normalizeClassName(student.className);
+
   const examDateSheet = dateSheet
-    .filter((d) => (!d.examId || d.examId === exam.id) && (!d.className || d.className === student.className))
+    .filter((d) => {
+      const matchExam = !d.examId || d.examId === exam.id;
+      if (!matchExam) return false;
+      const dNorm = normalizeClassName(d.className);
+      if (!dNorm) return true; // common to all classes
+      return dNorm === studentNormClass;
+    })
     .sort((a, b) => a.order - b.order);
 
-  // If no class-specific datesheet found, fallback to common datesheet for this exam
+  // If class-specific schedule exists, use it; otherwise fallback to general exam schedule
   const finalDateSheet =
     examDateSheet.length > 0
       ? examDateSheet
-      : dateSheet.filter((d) => !d.examId || d.examId === exam.id).sort((a, b) => a.order - b.order);
+      : dateSheet
+          .filter((d) => (!d.examId || d.examId === exam.id) && !d.className)
+          .sort((a, b) => a.order - b.order);
 
   const fontClass =
     design.fontFamily === 'roboto'

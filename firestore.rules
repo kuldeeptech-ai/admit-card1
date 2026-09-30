@@ -35,6 +35,11 @@ service cloud.firestore {
       allow read, write: if true;
     }
 
+    // App & Design Settings (Design, Visibility, Print Settings, Custom Fields)
+    match /app_settings/{settingsId} {
+      allow read, write: if true;
+    }
+
     // Test connection doc
     match /test/{docId} {
       allow read, write: if true;

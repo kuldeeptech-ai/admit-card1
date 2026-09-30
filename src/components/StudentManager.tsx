@@ -32,10 +32,14 @@ import { DEFAULT_STUDENT_AVATARS } from '../utils/defaultData';
 import { parseExcelPastedText } from '../utils/excelImport';
 import { compressImage } from '../utils/imageCompressor';
 
-// Helper to normalize class names (e.g., '5', '5th', 'Class 5', 'class 5th' -> 'Class 5')
+// Helper to normalize class names (e.g., '1st', 'Class - 1st', 'Nursary', 'LKG', 'UKG' -> standard 'Class 1', 'Nursery', etc.)
 export function normalizeClassName(cls?: string): string {
   if (!cls) return '';
   const trimmed = cls.trim();
+  const lower = trimmed.toLowerCase();
+  if (lower.includes('nur')) return 'Nursery';
+  if (lower.includes('lkg') || lower.includes('l.k.g')) return 'LKG';
+  if (lower.includes('ukg') || lower.includes('u.k.g')) return 'UKG';
   const numMatch = trimmed.match(/(\d+)/);
   if (numMatch) return `Class ${numMatch[1]}`;
   return trimmed;
@@ -47,6 +51,36 @@ export function formatClassNumberOnly(cls?: string): string {
   const trimmed = cls.trim();
   const cleaned = trimmed.replace(/^class\s+/i, '');
   return cleaned || trimmed;
+}
+
+// Natural Serial Sorter by Roll Number (1, 2, 3, ... 10, 11) grouped by Class and Section
+export function sortStudentsByRollNumber(studentsList: Student[]): Student[] {
+  return [...studentsList].sort((a, b) => {
+    // 1. Group by Class
+    const normA = normalizeClassName(a.className);
+    const normB = normalizeClassName(b.className);
+    const classNumA = parseInt(normA.replace(/[^0-9]/g, '') || '0', 10);
+    const classNumB = parseInt(normB.replace(/[^0-9]/g, '') || '0', 10);
+    if (classNumA !== classNumB) return classNumA - classNumB;
+    if (normA !== normB) return normA.localeCompare(normB);
+
+    // 2. Group by Section ('A', 'B', 'C'...)
+    const secA = (a.section || 'A').trim().toUpperCase();
+    const secB = (b.section || 'A').trim().toUpperCase();
+    if (secA !== secB) return secA.localeCompare(secB);
+
+    // 3. Serial Numeric Order by Roll Number: 1, 2, 3, 4, ... 10, 11
+    const rollNumA = parseInt(a.rollNumber.replace(/[^0-9]/g, '') || '0', 10);
+    const rollNumB = parseInt(b.rollNumber.replace(/[^0-9]/g, '') || '0', 10);
+    if (rollNumA > 0 && rollNumB > 0 && rollNumA !== rollNumB) {
+      return rollNumA - rollNumB;
+    }
+
+    return (a.rollNumber || '').localeCompare(b.rollNumber || '', undefined, {
+      numeric: true,
+      sensitivity: 'base',
+    });
+  });
 }
 
 // Duplicate detector: checks roll number in same class, admission number, or name + father name in same class
@@ -92,7 +126,12 @@ interface StudentManagerProps {
   school: SchoolSettings;
   selectedClassFilter?: string;
   onSaveStudent: (student: Student) => void;
-  onBulkAddStudents?: (students: Student[]) => void;
+  onBulkAddStudents?: (
+    students: Student[],
+    importMode?: 'update' | 'skip' | 'replace_class',
+    targetClassName?: string
+  ) => void;
+  onResequenceRollNumbers?: (targetClassName: string) => void;
   onDeleteStudent: (id: string) => void;
   onDeleteMultiple: (ids: string[]) => void;
   onGenerateAdmitCards: (ids: string[]) => void;
@@ -107,6 +146,7 @@ export const StudentManager: React.FC<StudentManagerProps> = ({
   selectedClassFilter: initialClassFilter,
   onSaveStudent,
   onBulkAddStudents,
+  onResequenceRollNumbers,
   onDeleteStudent,
   onDeleteMultiple,
   onGenerateAdmitCards,

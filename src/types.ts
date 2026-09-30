@@ -51,6 +51,7 @@ export interface DateSheetItem {
   subject: string;
   time?: string;
   room?: string;
+  code?: string;
   order: number;
 }
 

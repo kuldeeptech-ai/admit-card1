@@ -1,13 +1,29 @@
 import { initializeApp } from 'firebase/app';
 import { getAuth, GoogleAuthProvider } from 'firebase/auth';
-import { getFirestore, doc, getDoc } from 'firebase/firestore';
+import {
+  initializeFirestore,
+  persistentLocalCache,
+  persistentMultipleTabManager,
+  doc,
+  getDoc,
+} from 'firebase/firestore';
 import firebaseConfig from '../firebase-applet-config.json';
 
 // Initialize Firebase App
 const app = initializeApp(firebaseConfig);
 
-// Initialize Firestore with specific database ID
-export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
+// Initialize Firestore with explicit long-polling & persistent local caching
+// This eliminates the 10-second backend timeout warning caused by WebChannel streaming
+export const db = initializeFirestore(
+  app,
+  {
+    experimentalForceLongPolling: true,
+    localCache: persistentLocalCache({
+      tabManager: persistentMultipleTabManager(),
+    }),
+  },
+  firebaseConfig.firestoreDatabaseId
+);
 
 // Initialize Authentication
 export const auth = getAuth(app);
